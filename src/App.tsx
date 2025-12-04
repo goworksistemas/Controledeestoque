@@ -1,0 +1,183 @@
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AppProvider, useApp } from './contexts/AppContext';
+import { LoginPage } from './components/LoginPage';
+import { ResetPasswordPage } from './components/ResetPasswordPage';
+import { AppHeader } from './components/AppHeader';
+import { ControllerDashboard } from './components/ControllerDashboard';
+import { AdminDashboard } from './components/AdminDashboard';
+import { WarehouseDashboard } from './components/WarehouseDashboard';
+import { DriverDashboard } from './components/DriverDashboard';
+import { DesignerDashboard } from './components/DesignerDashboard';
+import { DeveloperDashboard } from './components/DeveloperDashboard';
+import { RequesterDashboard } from './components/RequesterDashboard';
+import { Toaster } from './components/ui/sonner';
+import { projectId, publicAnonKey } from './utils/supabase/info';
+import { useInactivityLogout } from './hooks/useInactivityLogout';
+import { toast } from 'sonner@2.0.3';
+import type { UserRole } from './types';
+
+export const ThemeContext = React.createContext<{
+  theme: 'light' | 'dark';
+  toggleTheme: () => void;
+}>({
+  theme: 'light',
+  toggleTheme: () => {},
+});
+
+// Context para o Developer alternar entre views
+export const DeveloperViewContext = React.createContext<{
+  viewAsRole: UserRole | null;
+  setViewAsRole: (role: UserRole | null) => void;
+}>({
+  viewAsRole: null,
+  setViewAsRole: () => {},
+});
+
+function AppContent() {
+  const { currentUser, logout, isLoading } = useApp();
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  // Auto-logout após 1 hora de inatividade
+  useInactivityLogout(
+    () => {
+      toast.warning('Você foi desconectado por inatividade (1 hora sem uso)', {
+        duration: 5000,
+      });
+      logout();
+    }, 
+    !!currentUser,
+    () => {
+      toast.info('⚠️ Você será desconectado em 5 minutos por inatividade. Interaja com o sistema para continuar logado.', {
+        duration: 8000,
+      });
+    }
+  );
+
+  // Initialize database on first load
+  useEffect(() => {
+    const initializeDatabase = async () => {
+      const hasInitialized = localStorage.getItem('gowork_db_initialized');
+      if (!hasInitialized) {
+        try {
+          const response = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-46b247d8/seed`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${publicAnonKey}`,
+              },
+            }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            console.log('✅ Database initialized:', data);
+            localStorage.setItem('gowork_db_initialized', 'true');
+          }
+        } catch (error) {
+          console.error('❌ Error initializing database:', error);
+        }
+      }
+      setIsInitializing(false);
+    };
+
+    initializeDatabase();
+  }, []);
+
+  // Mostrar loading durante inicialização ou carregamento de dados
+  if (isInitializing || isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-[#3F76FF]/5 via-[#00C5E9]/5 to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-[#3F76FF]/30 border-t-[#3F76FF] rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-slate-600 dark:text-slate-400">
+            {isInitializing ? 'Inicializando sistema...' : 'Carregando dados...'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <LoginPage />;
+  }
+
+  const renderDashboard = () => {
+    // Motoristas têm interface simplificada
+    if (currentUser.role === 'warehouse' && currentUser.warehouseType === 'delivery') {
+      return <DriverDashboard />;
+    }
+
+    switch (currentUser.role) {
+      case 'controller':
+        return <ControllerDashboard />;
+      case 'admin':
+        return <AdminDashboard />;
+      case 'warehouse':
+        return <WarehouseDashboard />;
+      case 'designer':
+        return <DesignerDashboard />;
+      case 'developer':
+        return <DeveloperDashboard />;
+      case 'requester':
+        return <RequesterDashboard />;
+      default:
+        return <div>Perfil não reconhecido</div>;
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-background overflow-x-hidden">
+      <AppHeader />
+      <main className="container mx-auto px-3 md:px-4 py-4 md:py-6 max-w-full">
+        {renderDashboard()}
+      </main>
+      <Toaster />
+    </div>
+  );
+}
+
+export default function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+
+  useEffect(() => {
+    // Sempre inicia em light mode
+    document.documentElement.classList.remove('dark');
+  }, []);
+
+  useEffect(() => {
+    // CRITICAL: Capture hash before React Router processes it
+    // This preserves Supabase auth tokens that come in the URL hash
+    if (window.location.hash && window.location.pathname.includes('reset-password')) {
+      console.log('🔒 Capturing auth hash before Router processes it:', window.location.hash);
+      sessionStorage.setItem('supabase_auth_hash', window.location.hash);
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    setTheme(prev => {
+      const newTheme = prev === 'light' ? 'dark' : 'light';
+      if (newTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+      return newTheme;
+    });
+  };
+
+  return (
+    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      <BrowserRouter>
+        <AppProvider>
+          <Routes>
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="*" element={<AppContent />} />
+          </Routes>
+        </AppProvider>
+      </BrowserRouter>
+    </ThemeContext.Provider>
+  );
+}

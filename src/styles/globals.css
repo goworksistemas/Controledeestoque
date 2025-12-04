@@ -1,0 +1,232 @@
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* ========== Cores da Marca Gowork (Brandbook Oficial) ========== */
+  --brand-primary: #3F76FF;      /* Festival da Ópera */
+  --brand-secondary: #00C5E9;    /* Pelourinho */
+  --brand-neutral: #606060;      /* Cinza Profundo */
+  
+  /* ========== Utility Colors (Light Mode) ========== */
+  --bg-primary: #f8f9fa;
+  --bg-secondary: #ffffff;
+  --text-primary: #14181b;
+  --text-secondary: #495057;
+  
+  /* ========== Surfaces & Strokes (Light Mode) ========== */
+  --surface: #ffffff;
+  --card: #ffffff;
+  --stroke: #d8dee4;
+  --shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  
+  /* ========== Semantic Colors (Light Mode) ========== */
+  --success: #249689;
+  --error: #DC3545;
+  --warning: #FF8C00;
+  --info: #17A2B8;
+  
+  /* ========== Accent Colors (UI Support) ========== */
+  --accent-1: #FF6B35;           /* Laranja Vibrante */
+  --accent-2: #9B59B6;           /* Roxo Intenso */
+  --accent-3: #2ECC71;           /* Verde Forte */
+  --accent-4: #E74C3C;           /* Vermelho Vivo */
+  
+  /* ========== Design System Tokens (Light Mode) ========== */
+  --background: #f8f9fa;
+  --foreground: #14181b;
+  --card: #ffffff;
+  --card-foreground: #14181b;
+  --popover: #ffffff;
+  --popover-foreground: #14181b;
+  --primary: #3F76FF;
+  --primary-foreground: #ffffff;
+  --secondary: #00C5E9;
+  --secondary-foreground: #ffffff;
+  --muted: #f8f9fa;
+  --muted-foreground: #606060;
+  --accent: #f8f9fa;
+  --accent-foreground: #14181b;
+  --destructive: #DC3545;
+  --destructive-foreground: #ffffff;
+  --border: #d8dee4;
+  --input: #d8dee4;
+  --input-background: #ffffff;
+  --ring: #3F76FF;
+  --radius: 0.875rem;
+  
+  /* Sidebar (Light Mode) */
+  --sidebar: #ffffff;
+  --sidebar-foreground: #14181b;
+  --sidebar-primary: #3F76FF;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f8f9fa;
+  --sidebar-accent-foreground: #14181b;
+  --sidebar-border: #d8dee4;
+  --sidebar-ring: #3F76FF;
+}
+
+.dark {
+  /* ========== Utility Colors (Dark Mode) ========== */
+  --bg-primary: #0a0d0f;
+  --bg-secondary: #0f1214;
+  --text-primary: #f8f9fa;
+  --text-secondary: #a8adb3;
+  
+  /* ========== Surfaces & Strokes (Dark Mode) ========== */
+  --surface: #151819;
+  --card: #1a1d21;
+  --stroke: #2a2f35;
+  --shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+  
+  /* ========== Semantic Colors (Dark Mode) ========== */
+  --success: #34d399;
+  --error: #f87171;
+  --warning: #fbbf24;
+  --info: #38bdf8;
+  
+  /* ========== Accent Colors (UI Support - Same in Dark) ========== */
+  --accent-1: #FF6B35;
+  --accent-2: #9B59B6;
+  --accent-3: #2ECC71;
+  --accent-4: #E74C3C;
+  
+  /* ========== Design System Tokens (Dark Mode) ========== */
+  --background: #0a0d0f;
+  --foreground: #f8f9fa;
+  --card: #1a1d21;
+  --card-foreground: #e5e7eb;
+  --popover: #1a1d21;
+  --popover-foreground: #f8f9fa;
+  --primary: #5b8cff;
+  --primary-foreground: #ffffff;
+  --secondary: #1dd3f0;
+  --secondary-foreground: #0a0d0f;
+  --muted: #1f2428;
+  --muted-foreground: #9ca3af;
+  --accent: #2a2f35;
+  --accent-foreground: #f8f9fa;
+  --destructive: #f87171;
+  --destructive-foreground: #ffffff;
+  --border: #2a2f35;
+  --input: #2a2f35;
+  --input-background: #151819;
+  --ring: #5b8cff;
+  
+  /* Sidebar (Dark Mode) */
+  --sidebar: #151819;
+  --sidebar-foreground: #e5e7eb;
+  --sidebar-primary: #5b8cff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1f2428;
+  --sidebar-accent-foreground: #e5e7eb;
+  --sidebar-border: #2a2f35;
+  --sidebar-ring: #5b8cff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    overflow-x: hidden;
+  }
+  
+  html {
+    overflow-x: hidden;
+  }
+}
+
+/**
+ * Base typography. This is not applied to elements which have an ancestor with a Tailwind text class.
+ */
+@layer base {
+  :where(:not(:has([class*=" text-"]), :not(:has([class^="text-"])))) {
+    h1 {
+      font-size: 1.875rem;
+      font-weight: 600;
+      line-height: 1.5;
+    }
+
+    h2 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      line-height: 1.5;
+    }
+
+    h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      line-height: 1.5;
+    }
+
+    h4 {
+      font-size: 1rem;
+      font-weight: 600;
+      line-height: 1.5;
+    }
+
+    p {
+      font-size: 1rem;
+      font-weight: 400;
+      line-height: 1.5;
+    }
+
+    label {
+      font-size: 1rem;
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    button {
+      font-size: 1rem;
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    input {
+      font-size: 1rem;
+      font-weight: 400;
+      line-height: 1.5;
+    }
+  }
+}
+
+html {
+  font-size: 16px;
+}
