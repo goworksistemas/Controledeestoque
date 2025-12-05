@@ -441,7 +441,8 @@ app.post("/make-server-46b247d8/auth/signin", async (c) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      console.error("Error signing in:", error);
+      // Log com mais contexto mas sem logar todo o erro (pode conter informações sensíveis)
+      console.error("❌ Error signing in - Code:", error.code, "- User:", email);
       
       // Return specific error messages based on error code
       if (error.message.includes('Invalid login credentials') || error.code === 'invalid_credentials') {
@@ -1279,6 +1280,8 @@ app.post("/make-server-46b247d8/unit-stocks", async (c) => {
   try {
     const newStock = await c.req.json();
     
+    console.log('📦 Criando novo stock:', newStock);
+    
     // Transformar camelCase para snake_case antes de inserir
     const dbStock = {
       item_id: newStock.itemId,
@@ -1288,8 +1291,15 @@ app.post("/make-server-46b247d8/unit-stocks", async (c) => {
       location: newStock.location,
     };
     
+    console.log('📦 Stock no formato DB:', dbStock);
+    
     const { data, error } = await supabase.from('unit_stocks').insert(dbStock).select().single();
-    if (error) throw error;
+    if (error) {
+      console.error('❌ Erro do Supabase ao inserir stock:', error);
+      throw error;
+    }
+    
+    console.log('✅ Stock criado com sucesso:', data);
     
     // Transformar de volta para camelCase
     const transformedData = {
@@ -1303,8 +1313,11 @@ app.post("/make-server-46b247d8/unit-stocks", async (c) => {
     
     return c.json(transformedData, 201);
   } catch (error) {
-    console.error("Error creating unit stock:", error);
-    return c.json({ error: "Failed to create unit stock" }, 500);
+    console.error("❌ Error creating unit stock:", error);
+    return c.json({ 
+      error: "Failed to create unit stock",
+      details: error.message || String(error)
+    }, 500);
   }
 });
 
@@ -1380,7 +1393,7 @@ app.get("/make-server-46b247d8/requests", async (c) => {
 app.post("/make-server-46b247d8/requests", async (c) => {
   try {
     const requestData = await c.req.json();
-    console.log("📝 Creating new request:", JSON.stringify(requestData, null, 2));
+    console.log("📝 Creating new request - RAW DATA:", JSON.stringify(requestData, null, 2));
     
     // Transform camelCase to snake_case for database
     const dbRequest = {
@@ -1400,9 +1413,13 @@ app.post("/make-server-46b247d8/requests", async (c) => {
     
     if (error) {
       console.error("❌ Supabase error creating request:", error);
+      console.error("❌ Error message:", error.message);
+      console.error("❌ Error code:", error.code);
       console.error("❌ Error details:", JSON.stringify(error, null, 2));
       throw error;
     }
+    
+    console.log("✅ Request created successfully in DB:", data.id);
     
     // Transform response back to camelCase
     const transformedData = {
@@ -1427,6 +1444,7 @@ app.post("/make-server-46b247d8/requests", async (c) => {
       urgency: data.urgency,
     };
     
+    console.log("✅ Returning transformed request to frontend:", transformedData.id);
     return c.json(transformedData, 201);
   } catch (error) {
     console.error("❌ Error creating request:", error);
@@ -1530,8 +1548,8 @@ app.get("/make-server-46b247d8/movements", async (c) => {
  * Cria um movimento de estoque e atualiza a quantidade correspondente
  * 
  * Tipos de movimento:
- * - ENTRADA (aumenta estoque): 'entry', 'return', 'in'
- * - SAÍDA (diminui estoque): 'out', 'consumption', 'loan'
+ * - ENTRADA (aumenta estoque): 'entry', 'return'
+ * - SAÍDA (diminui estoque): 'consumption', 'loan'
  * 
  * Fluxo:
  * 1. Buscar ou criar unit_stock para item+unidade
@@ -1581,9 +1599,9 @@ app.post("/make-server-46b247d8/movements", async (c) => {
     
     // 3. Calcular nova quantidade
     const currentQuantity = existingStock.quantity || 0;
-    // Tipos de ENTRADA (soma): 'entry', 'return', 'in'
-    // Tipos de SAÍDA (subtrai): 'out', 'consumption', 'loan'
-    const isAddition = newMovement.type === 'entry' || newMovement.type === 'return' || newMovement.type === 'in';
+    // Tipos de ENTRADA (soma): 'entry', 'return'
+    // Tipos de SAÍDA (subtrai): 'consumption', 'loan'
+    const isAddition = newMovement.type === 'entry' || newMovement.type === 'return';
     const quantityChange = isAddition ? newMovement.quantity : -newMovement.quantity;
     const newQuantity = currentQuantity + quantityChange;
     

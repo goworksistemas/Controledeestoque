@@ -15,7 +15,7 @@ interface AddFurnitureDialogProps {
 }
 
 export function AddFurnitureDialog({ open, onOpenChange }: AddFurnitureDialogProps) {
-  const { currentUnit, currentUser, addItem, addStock, units, categories, getWarehouseUnitId } = useApp();
+  const { currentUnit, currentUser, addItemWithStock, units, categories, getWarehouseUnitId } = useApp();
   const [isLoading, setIsLoading] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
@@ -169,9 +169,6 @@ export function AddFurnitureDialog({ open, onOpenChange }: AddFurnitureDialogPro
       // Buscar uma categoria válida - usar a primeira disponível ou criar uma genérica
       let validCategoryId = categories && categories.length > 0 ? categories[0].id : 'default-category';
       
-      // Create furniture item
-      const itemId = `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      
       // Se for almoxarifado, usar localização padrão "Estoque Central"
       // Se não, usar andar + sala
       const locationString = isWarehouse 
@@ -179,7 +176,6 @@ export function AddFurnitureDialog({ open, onOpenChange }: AddFurnitureDialogPro
         : `${formData.floor}${formData.room ? ` - ${formData.room}` : ''}`;
       
       const newItem = {
-        id: itemId,
         name: formData.name,
         categoryId: validCategoryId, // Usar categoria válida
         description: formData.description || 'Móvel cadastrado',
@@ -194,21 +190,18 @@ export function AddFurnitureDialog({ open, onOpenChange }: AddFurnitureDialogPro
         updatedAt: new Date(),
       };
 
-      // Create stock for this unit
-      const stockId = `stock-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const newStock = {
-        id: stockId,
-        itemId: itemId,
-        unitId: targetUnit.id,
-        quantity: formData.quantity,
-        minimumQuantity: 0,
-        location: locationString,
-      };
-
-      // Add to context
-      addItem(newItem);
-      addStock(newStock);
-
+      // ⚠️ IMPORTANTE: addItemWithStock() cria o item E o stock simultaneamente
+      // Retorna o itemId gerado pelo backend
+      console.log('📦 Criando item e stock no backend...');
+      const itemId = addItemWithStock(
+        newItem, 
+        targetUnit.id, 
+        formData.quantity, 
+        locationString
+      );
+      
+      console.log('✅ Móvel cadastrado com sucesso! ItemID:', itemId);
+      
       toast.success(`Móvel "${formData.name}" cadastrado no ${isWarehouse ? 'Almoxarifado Central' : targetUnit.name}!`);
       onOpenChange(false);
     } catch (error: any) {

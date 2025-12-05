@@ -377,7 +377,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addItemWithStock = (itemData: Omit<Item, 'id'> & { createdAt?: Date; updatedAt?: Date }, unitId: string, quantity: number, location: string): string => {
-    const itemId = `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Gerar UUID real ao invés de string customizada
+    const itemId = crypto.randomUUID();
     const newItem: Item = {
       ...itemData,
       id: itemId,
@@ -394,7 +395,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       : appUnits;
     
     const newStocks = unitsToCreateStock.map(unit => ({
-      id: `stock-${itemId}-${unit.id}`,
+      id: crypto.randomUUID(), // UUID para cada stock
       itemId: itemId,
       unitId: unit.id,
       quantity: unit.id === unitId ? quantity : 0,
@@ -407,8 +408,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addItem = async (itemData: Omit<Item, 'id'> & { createdAt?: Date; updatedAt?: Date }) => {
-    // Create temporary item in frontend
-    const tempId = `item-temp-${Date.now()}`;
+    // Create temporary item in frontend com UUID
+    const tempId = crypto.randomUUID();
     const tempItem: Item = {
       ...itemData,
       id: tempId,
@@ -581,6 +582,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addRequest = async (requestData: Omit<Request, 'id' | 'createdAt'>) => {
+    console.log('🚀 addRequest chamado com:', requestData);
+    
     // Create temporary request in frontend
     const tempId = `req-temp-${Date.now()}`;
     const newRequest: Request = {
@@ -589,9 +592,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createdAt: new Date(),
     };
     setAppRequests(prev => [...prev, newRequest]);
+    console.log('✅ Request temporário criado no frontend:', tempId);
 
     // Save to backend
     try {
+      console.log('💾 Tentando persistir request no backend...');
       // Don't send createdAt - Supabase will auto-generate created_at timestamp
       const createdRequest = await api.requests.create(requestData);
       
@@ -603,6 +608,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.log('✅ Solicitação criada no backend:', createdRequest);
     } catch (error) {
       console.error('❌ Erro ao criar solicitação no backend:', error);
+      console.error('❌ Detalhes do erro:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        details: (error as any).details,
+        requestData: requestData,
+      });
       // Rollback: remove temp request
       setAppRequests(prev => prev.filter(r => r.id !== tempId));
       throw error;
@@ -639,34 +649,66 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ));
   };
 
-  const addFurnitureRemovalRequest = (requestData: Omit<FurnitureRemovalRequest, 'id' | 'createdAt'>) => {
+  const addFurnitureRemovalRequest = async (requestData: Omit<FurnitureRemovalRequest, 'id' | 'createdAt'>) => {
     const newRequest: FurnitureRemovalRequest = {
       ...requestData,
       id: `frr-${Date.now()}`,
       createdAt: new Date(),
     };
     setAppFurnitureRemovalRequests(prev => [...prev, newRequest]);
+    
+    // Salvar no backend
+    try {
+      await api.furnitureRemovalRequests.create(newRequest);
+      console.log('✅ Solicitação de retirada salva no backend:', newRequest.id);
+    } catch (error) {
+      console.error('❌ Erro ao salvar solicitação de retirada no backend:', error);
+    }
   };
 
-  const updateFurnitureRemovalRequest = (requestId: string, updates: Partial<FurnitureRemovalRequest>) => {
+  const updateFurnitureRemovalRequest = async (requestId: string, updates: Partial<FurnitureRemovalRequest>) => {
     setAppFurnitureRemovalRequests(prev => prev.map(req =>
       req.id === requestId ? { ...req, ...updates } : req
     ));
+    
+    // Atualizar no backend
+    try {
+      await api.furnitureRemovalRequests.update(requestId, updates);
+      console.log('✅ Solicitação de retirada atualizada no backend:', requestId);
+    } catch (error) {
+      console.error('❌ Erro ao atualizar solicitação de retirada no backend:', error);
+    }
   };
 
-  const addFurnitureRequestToDesigner = (requestData: Omit<FurnitureRequestToDesigner, 'id' | 'createdAt'>) => {
+  const addFurnitureRequestToDesigner = async (requestData: Omit<FurnitureRequestToDesigner, 'id' | 'createdAt'>) => {
     const newRequest: FurnitureRequestToDesigner = {
       ...requestData,
       id: `frd-${Date.now()}`,
       createdAt: new Date(),
     };
     setAppFurnitureRequestsToDesigner(prev => [...prev, newRequest]);
+    
+    // Salvar no backend
+    try {
+      await api.furnitureRequestsToDesigner.create(newRequest);
+      console.log('✅ Solicitação ao designer salva no backend:', newRequest.id);
+    } catch (error) {
+      console.error('❌ Erro ao salvar solicitação ao designer no backend:', error);
+    }
   };
 
-  const updateFurnitureRequestToDesigner = (requestId: string, updates: Partial<FurnitureRequestToDesigner>) => {
+  const updateFurnitureRequestToDesigner = async (requestId: string, updates: Partial<FurnitureRequestToDesigner>) => {
     setAppFurnitureRequestsToDesigner(prev => prev.map(req =>
       req.id === requestId ? { ...req, ...updates } : req
     ));
+    
+    // Atualizar no backend
+    try {
+      await api.furnitureRequestsToDesigner.update(requestId, updates);
+      console.log('✅ Solicitação ao designer atualizada no backend:', requestId);
+    } catch (error) {
+      console.error('❌ Erro ao atualizar solicitação ao designer no backend:', error);
+    }
   };
 
   const addUser = async (userData: Omit<User, 'id'>) => {
@@ -1025,27 +1067,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const separateItemInBatch = async (requestId: string, batchId: string) => {
-    if (!currentUser) return;
+    console.log('🔍 separateItemInBatch chamado:', { requestId, batchId });
+    
+    if (!currentUser) {
+      console.log('❌ currentUser não existe!');
+      return;
+    }
+    
+    console.log('✅ currentUser:', currentUser.name, currentUser.id);
     
     // Buscar o pedido para pegar informações do item
     const request = appRequests.find(r => r.id === requestId);
-    if (!request) return;
+    if (!request) {
+      console.log('❌ Request não encontrado:', requestId);
+      return;
+    }
+    
+    console.log('✅ Request encontrado:', request);
     
     // Buscar o item para verificar se é material regular
     const item = appItems.find(i => i.id === request.itemId);
-    if (!item) return;
+    if (!item) {
+      console.log('❌ Item não encontrado:', request.itemId);
+      return;
+    }
+    
+    console.log('✅ Item encontrado:', item.name, 'isFurniture:', item.isFurniture);
     
     // Criar movimentação de SAÍDA do almoxarifado (apenas para materiais regulares)
-    if (item.isFurniture === false) {
+    // IMPORTANTE: Se isFurniture for undefined ou false, é material regular
+    if (item.isFurniture !== true) {
+      console.log('📦 É material regular, criando movimentação de saída...');
+      
       const warehouseId = getWarehouseUnitId();
       if (!warehouseId) {
         console.error('❌ Almoxarifado Central não encontrado!');
         throw new Error('Almoxarifado Central não encontrado');
       }
       
+      console.log('✅ Almoxarifado ID:', warehouseId);
+      
       try {
+        console.log('📤 Criando movimentação de SAÍDA...');
         await addMovement({
-          type: 'out',
+          type: 'consumption',
           itemId: request.itemId,
           unitId: warehouseId, // Almoxarifado Central (ID dinâmico)
           userId: currentUser.id,
@@ -1057,6 +1122,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.error('❌ Erro ao criar movimentação de saída:', error);
         throw error;
       }
+    } else {
+      console.log('🪑 É móvel (isFurniture=true), pulando criação de movimentação');
     }
     
     // Marcar o item como separado (awaiting_pickup)

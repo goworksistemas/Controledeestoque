@@ -98,6 +98,13 @@ export function WarehouseDashboard() {
   // Lotes confirmados pelo controlador aguardando registro final
   const deliveryConfirmedBatches = deliveryBatches.filter(b => b.status === 'delivery_confirmed');
 
+  // 🔧 FILTRAR LOTES TRAVADOS: remover lotes pending com todos itens separados
+  const validPendingBatches = pendingBatches.filter(batch => {
+    const batchRequests = requests.filter(r => batch.requestIds.includes(r.id));
+    const allSeparated = batchRequests.every(r => r.status === 'awaiting_pickup');
+    return !allSeparated; // Mostrar apenas lotes que ainda têm itens para separar
+  });
+
   // Solicitações ativas (precisam de ação imediata)
   const activeRequests = [...pendingRequests, ...approvedRequests, ...outForDeliveryRequests];
 
@@ -725,19 +732,19 @@ export function WarehouseDashboard() {
       )}
 
       {/* Lotes Pendentes de Separação */}
-      {isStorageWorker && pendingBatches.length > 0 && (
+      {isStorageWorker && validPendingBatches.length > 0 && (
         <Card className="border-2 border-orange-400 bg-gradient-to-br from-orange-50 to-yellow-50">
           <CardHeader>
             <CardTitle className="text-base sm:text-lg flex items-center gap-2">
               <PackageCheck className="h-5 w-5 text-orange-600" />
-              Lotes Aguardando Separação ({pendingBatches.length})
+              Lotes Aguardando Separação ({validPendingBatches.length})
             </CardTitle>
             <CardDescription className="text-xs sm:text-sm">
               Separe cada item do lote. Quando todos separados, vai automaticamente para o motorista
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {pendingBatches.map(batch => {
+            {validPendingBatches.map(batch => {
               const driver = getUserById(batch.driverUserId);
               const unit = getUnitById(batch.targetUnitId);
               const batchRequests = requests.filter(r => batch.requestIds.includes(r.id));
@@ -771,7 +778,7 @@ export function WarehouseDashboard() {
                           </div>
                           
                           {isSeparated ? (
-                            <Badge className="bg-green-600">✓ Separado</Badge>
+                            <Badge className="bg-green-600">�� Separado</Badge>
                           ) : (
                             <Button
                               size="sm"

@@ -3,8 +3,11 @@ import { projectId, publicAnonKey } from './supabase/info';
 const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-46b247d8`;
 
 // Helper to get auth token
+// NOTA: Por enquanto, usar sempre publicAnonKey pois o backend não valida JWT customizado
 const getAuthToken = () => {
-  return localStorage.getItem('gowork_auth_token') || publicAnonKey;
+  // Para as rotas de autenticação específicas, usar o token armazenado
+  // Para outras rotas, usar o publicAnonKey
+  return publicAnonKey;
 };
 
 // Helper to make API requests
