@@ -1,61 +1,67 @@
-**Add your own guidelines here**
-<!--
+# Gowork - Sistema de Controle de Estoque
 
-System Guidelines
+## Correção Técnica: Migração de TEXT para UUID
 
-Use this file to provide the AI with rules and guidelines you want it to follow.
-This template outlines a few examples of things you can add. You can add your own sections and format it to suit your needs
+### Problema Identificado
+As tabelas `units` e `floors` foram inicialmente criadas com colunas `id` do tipo TEXT ao invés de UUID:
+- Isso permitiu que dados antigos fossem salvos com strings simples como 'unit-warehouse', 'unit-1', etc.
+- O código frontend gera UUIDs reais com `crypto.randomUUID()`, mas o banco aceitava ambos porque era TEXT
+- Isso causava inconsistências e problemas de validação
 
-TIP: More context isn't always better. It can confuse the LLM. Try and add the most important rules you need
+### Solução Implementada
 
-# General guidelines
+1. **Atualização do Schema** (`/supabase/functions/server/index.tsx`):
+   - Alterado `id TEXT PRIMARY KEY` para `id UUID PRIMARY KEY DEFAULT gen_random_uuid()`
+   - Aplicado nas tabelas `units` e `floors`
+   - Isso garante que novas instalações usem o tipo correto
 
-Any general rules you want the AI to follow.
-For example:
+2. **Endpoint de Migração** (`POST /migrate-text-to-uuid`):
+   - Valida se todos os IDs existentes são UUIDs válidos
+   - Gera SQL para conversão das colunas TEXT para UUID
+   - Fornece instruções para execução manual no Supabase SQL Editor
+   
+3. **Interface de Migração** (Developer Dashboard):
+   - Botão "Validar IDs e Gerar SQL de Migração"
+   - Exibe resultado da validação no console
+   - Fornece SQL pronto para execução
 
-* Only use absolute positioning when necessary. Opt for responsive and well structured layouts that use flexbox and grid by default
-* Refactor code as you go to keep code clean
-* Keep file sizes small and put helper functions and components in their own files.
+### Como Executar a Migração (Para Instâncias Existentes)
 
---------------
+1. Acesse o Developer Dashboard
+2. Vá para a aba "Migração de Dados"
+3. Clique em "Validar IDs e Gerar SQL de Migração"
+4. Verifique o console do navegador para o SQL gerado
+5. Execute o SQL manualmente no Supabase SQL Editor
 
-# Design system guidelines
-Rules for how the AI should make generations look like your company's design system
+### SQL de Migração (Executar Manualmente)
 
-Additionally, if you select a design system to use in the prompt box, you can reference
-your design system's components, tokens, variables and components.
-For example:
+```sql
+-- Converter coluna id da tabela units
+ALTER TABLE units 
+  ALTER COLUMN id TYPE UUID USING id::uuid;
 
-* Use a base font-size of 14px
-* Date formats should always be in the format “Jun 10”
-* The bottom toolbar should only ever have a maximum of 4 items
-* Never use the floating action button with the bottom toolbar
-* Chips should always come in sets of 3 or more
-* Don't use a dropdown if there are 2 or fewer options
+-- Converter coluna id e unit_id da tabela floors
+ALTER TABLE floors 
+  ALTER COLUMN id TYPE UUID USING id::uuid,
+  ALTER COLUMN unit_id TYPE UUID USING unit_id::uuid;
 
-You can also create sub sections and add more specific details
-For example:
+-- Recriar foreign key se necessário
+-- ALTER TABLE floors DROP CONSTRAINT IF EXISTS floors_unit_id_fkey;
+-- ALTER TABLE floors ADD CONSTRAINT floors_unit_id_fkey 
+--   FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE;
+```
 
+### Pré-requisitos para Migração
 
-## Button
-The Button component is a fundamental interactive element in our design system, designed to trigger actions or navigate
-users through the application. It provides visual feedback and clear affordances to enhance user experience.
+⚠️ Antes de executar a migração:
+1. Execute a migração de unit_stocks primeiro (se necessário)
+2. Certifique-se de que todos os IDs são UUIDs válidos (formato: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+3. Faça backup do banco de dados
+4. A migração é irreversível
 
-### Usage
-Buttons should be used for important actions that users need to take, such as form submissions, confirming choices,
-or initiating processes. They communicate interactivity and should have clear, action-oriented labels.
+### Notas Técnicas
 
-### Variants
-* Primary Button
-  * Purpose : Used for the main action in a section or page
-  * Visual Style : Bold, filled with the primary brand color
-  * Usage : One primary button per section to guide users toward the most important action
-* Secondary Button
-  * Purpose : Used for alternative or supporting actions
-  * Visual Style : Outlined with the primary color, transparent background
-  * Usage : Can appear alongside a primary button for less important actions
-* Tertiary Button
-  * Purpose : Used for the least important actions
-  * Visual Style : Text-only with no border, using primary color
-  * Usage : For actions that should be available but not emphasized
--->
+- UUIDs válidos usam caracteres hexadecimais (0-9, a-f) em lowercase ou uppercase
+- O PostgreSQL converte automaticamente para lowercase
+- Regex de validação: `/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i`
+- Após a migração, o banco rejeitará qualquer tentativa de inserir strings não-UUID

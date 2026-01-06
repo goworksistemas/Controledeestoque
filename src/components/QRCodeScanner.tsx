@@ -79,21 +79,28 @@ export function QRCodeScanner({ onScanSuccess, onClose }: QRCodeScannerProps) {
         () => {}
       );
     } catch (err: any) {
-      console.error('Error starting scanner:', err);
+      // Não logar erro de permissão no console (é esperado quando usuário nega)
+      if (err.name !== 'NotAllowedError' && !err.message?.includes('Permission')) {
+        console.error('Error starting scanner:', err);
+      }
       
       if (!isMountedRef.current) return;
 
       if (err.name === 'NotAllowedError' || err.message?.includes('Permission') || err.message?.includes('permission')) {
         setError('Permissão da câmera negada. Por favor, permita o acesso à câmera nas configurações do seu navegador.');
+        toast.error('Permissão de câmera necessária', {
+          description: 'Habilite o acesso à câmera para escanear QR Codes'
+        });
       } else if (err.name === 'NotFoundError') {
         setError('Nenhuma câmera encontrada no dispositivo.');
+        toast.error('Câmera não encontrada');
       } else {
         setError('Não foi possível acessar a câmera. Verifique as permissões.');
+        toast.error('Erro ao acessar câmera');
       }
       
       setIsScanning(false);
       setShowScanner(false);
-      toast.error('Erro ao acessar câmera');
     }
   };
 

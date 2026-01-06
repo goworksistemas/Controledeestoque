@@ -14,8 +14,11 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { AlertCircle, Calendar } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './ui/command';
+import { AlertCircle, Calendar, Check, ChevronsUpDown } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
+import { cn } from './ui/utils';
 
 interface LoanItemDialogProps {
   open: boolean;
@@ -32,12 +35,14 @@ export function LoanItemDialog({
   itemName,
   availableQuantity 
 }: LoanItemDialogProps) {
-  const { currentUser, currentUnit, units, addLoan, addMovement, unitStocks, getWarehouseUnitId } = useApp();
+  const { currentUser, currentUnit, units, users, addLoan, addMovement, unitStocks, getWarehouseUnitId } = useApp();
   const [quantity, setQuantity] = useState('1');
   const [destinationUnitId, setDestinationUnitId] = useState('');
+  const [responsibleUserId, setResponsibleUserId] = useState('');
   const [expectedReturnDate, setExpectedReturnDate] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
+  const [openUserCombobox, setOpenUserCombobox] = useState(false);
 
   const warehouseId = getWarehouseUnitId();
   const otherUnits = units.filter(u => 
@@ -45,6 +50,9 @@ export function LoanItemDialog({
     u.id !== warehouseId && 
     u.status === 'active'
   );
+
+  // Filtrar usuários ativos para seleção do responsável
+  const availableUsers = users.filter(user => user.id !== currentUser?.id);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,6 +72,11 @@ export function LoanItemDialog({
 
     if (!destinationUnitId) {
       setError('Selecione a unidade de destino');
+      return;
+    }
+
+    if (!responsibleUserId) {
+      setError('Selecione o responsável pelo empréstimo');
       return;
     }
 
@@ -100,12 +113,12 @@ export function LoanItemDialog({
       notes: notes.trim() || undefined,
     });
 
-    // Also create a loan record
+    // Also create a loan record with the selected responsible user
     addLoan({
       itemId: stock.itemId,
       unitId: currentUnit.id,
-      responsibleUserId: currentUser.id,
-      expectedReturnDate: expectedReturnDate,
+      responsibleUserId: responsibleUserId,
+      expectedReturnDate: new Date(expectedReturnDate),
       status: 'active',
       observations: notes.trim() || undefined,
     });
@@ -113,6 +126,7 @@ export function LoanItemDialog({
     // Reset and close
     setQuantity('1');
     setDestinationUnitId('');
+    setResponsibleUserId('');
     setExpectedReturnDate('');
     setNotes('');
     setError('');
@@ -123,6 +137,7 @@ export function LoanItemDialog({
     if (!newOpen) {
       setQuantity('1');
       setDestinationUnitId('');
+      setResponsibleUserId('');
       setExpectedReturnDate('');
       setNotes('');
       setError('');
@@ -155,7 +170,7 @@ export function LoanItemDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label>Item</Label>
-            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+            <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
               <span className="text-sm font-medium">{itemName}</span>
               <Badge variant="outline">Disponível: {availableQuantity}</Badge>
             </div>
@@ -188,8 +203,65 @@ export function LoanItemDialog({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               Empréstimos são feitos apenas entre unidades operacionais
+            </p>
+          </div>
+
+          {/* Responsável - Combobox com busca */}
+          <div className="space-y-2">
+            <Label htmlFor="responsible">Responsável *</Label>
+            <Popover open={openUserCombobox} onOpenChange={setOpenUserCombobox}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={openUserCombobox}
+                  className="w-full justify-between"
+                >
+                  {responsibleUserId
+                    ? (() => {
+                        const user = availableUsers.find((u) => u.id === responsibleUserId);
+                        return user ? `${user.name} - ${user.email}` : "Selecione o usuário";
+                      })()
+                    : "Selecione o usuário responsável"}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                <Command>
+                  <CommandInput placeholder="Pesquisar usuário..." />
+                  <CommandList>
+                    <CommandEmpty>Nenhum usuário encontrado.</CommandEmpty>
+                    <CommandGroup>
+                      {availableUsers.map((user) => (
+                        <CommandItem
+                          key={user.id}
+                          value={`${user.name} ${user.email}`}
+                          onSelect={() => {
+                            setResponsibleUserId(user.id);
+                            setOpenUserCombobox(false);
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              responsibleUserId === user.id ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          <div className="flex flex-col">
+                            <span>{user.name}</span>
+                            <span className="text-xs text-slate-500 dark:text-slate-400">{user.email}</span>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Usuário que será responsável pela devolução
             </p>
           </div>
 

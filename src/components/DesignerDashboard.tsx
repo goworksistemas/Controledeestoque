@@ -3,10 +3,11 @@ import { useApp } from '../contexts/AppContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Armchair, MapPin, ArrowRightLeft, Building2, CheckCircle, Clock, XCircle, Plus, Trash2 } from 'lucide-react';
+import { Armchair, MapPin, ArrowRightLeft, Building2, CheckCircle, Clock, XCircle, Plus, Trash2, ChevronDown, ChevronUp, History } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { AddFurnitureDialog } from './AddFurnitureDialog';
 import { FurnitureRequestsPanel } from './FurnitureRequestsPanel';
+import { FurnitureRemovalDialog } from './FurnitureRemovalDialog';
 import {
   Dialog,
   DialogContent,
@@ -33,6 +34,11 @@ import {
   TableHeader,
   TableRow,
 } from './ui/table';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from './ui/collapsible';
 
 export function DesignerDashboard() {
   const {
@@ -64,6 +70,7 @@ export function DesignerDashboard() {
   const [removalDialogOpen, setRemovalDialogOpen] = useState(false);
   const [selectedRemovalRequest, setSelectedRemovalRequest] = useState<string | null>(null);
   const [disposalJustification, setDisposalJustification] = useState('');
+  const [requestRemovalDialogOpen, setRequestRemovalDialogOpen] = useState(false);
 
   // Sincronizar viewingUnit quando a unidade é selecionada no header
   useEffect(() => {
@@ -75,9 +82,9 @@ export function DesignerDashboard() {
   // Filtrar móveis
   const furnitureItems = items.filter(item => item.isFurniture && item.active);
 
-  // Filtrar estoque de móveis da unidade selecionada
+  // Filtrar estoque de móveis da unidade selecionada (apenas com quantidade > 0)
   const furnitureStock = unitStocks.filter(
-    stock => viewingUnit && stock.unitId === viewingUnit && furnitureItems.some(item => item.id === stock.itemId)
+    stock => viewingUnit && stock.unitId === viewingUnit && stock.quantity > 0 && furnitureItems.some(item => item.id === stock.itemId)
   );
 
   // Filtrar transferências do usuário
@@ -121,17 +128,16 @@ export function DesignerDashboard() {
     setTransferObservations('');
   };
 
-  const handleApproveRemoval = (requestId: string, decision: 'storage' | 'disposal') => {
-    setSelectedRemovalRequest(requestId);
-    setRemovalDialogOpen(true);
-    setDisposalJustification('');
-  };
-
-  const confirmRemovalDecision = (decision: 'storage' | 'disposal') => {
+  const handleApproveRemoval = (decision: 'storage' | 'disposal') => {
     if (!selectedRemovalRequest || !currentUser) return;
 
     const request = furnitureRemovalRequests.find(r => r.id === selectedRemovalRequest);
     if (!request) return;
+
+    console.log('🔍 DEBUG handleApproveRemoval:');
+    console.log('  📋 Request ID:', selectedRemovalRequest);
+    console.log('  📦 Decision:', decision);
+    console.log('  📊 Request Before:', request);
 
     if (decision === 'disposal' && !disposalJustification.trim()) {
       toast.error('Justificativa é obrigatória para descarte');
@@ -141,6 +147,8 @@ export function DesignerDashboard() {
     // Para descarte: vai para esteira de coleta do motorista
     // Para armazenagem: também vai para coleta, mas será armazenado
     const status = decision === 'storage' ? 'approved_storage' : 'approved_disposal';
+    
+    console.log('  🔄 New Status:', status);
     
     updateFurnitureRemovalRequest(selectedRemovalRequest, {
       status,
@@ -159,6 +167,8 @@ export function DesignerDashboard() {
     setRemovalDialogOpen(false);
     setSelectedRemovalRequest(null);
     setDisposalJustification('');
+    
+    console.log('✅ handleApproveRemoval concluído');
   };
 
   const handleRejectRemoval = (requestId: string) => {
@@ -178,6 +188,11 @@ export function DesignerDashboard() {
   const approvedRemovalRequests = furnitureRemovalRequests.filter(
     r => r.status === 'approved_storage' || r.status === 'approved_disposal' || 
         r.status === 'awaiting_pickup' || r.status === 'in_transit'
+  );
+
+  // Retiradas solicitadas pelo próprio designer
+  const myRemovalRequests = furnitureRemovalRequests.filter(
+    r => r.requestedByUserId === currentUser?.id
   );
 
   const getTransferStatusBadge = (status: string) => {
@@ -209,49 +224,51 @@ export function DesignerDashboard() {
     }
 
     return (
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Item</TableHead>
-            <TableHead>De</TableHead>
-            <TableHead>Para</TableHead>
-            <TableHead>Data</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Observações</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {transfersList.map((transfer) => {
-            const item = getItemById(transfer.itemId);
-            const fromUnit = getUnitById(transfer.fromUnitId);
-            const toUnit = getUnitById(transfer.toUnitId);
+      <div className="overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0">
+        <Table className="min-w-[700px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Item</TableHead>
+              <TableHead>De</TableHead>
+              <TableHead>Para</TableHead>
+              <TableHead>Data</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Observações</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {transfersList.map((transfer) => {
+              const item = getItemById(transfer.itemId);
+              const fromUnit = getUnitById(transfer.fromUnitId);
+              const toUnit = getUnitById(transfer.toUnitId);
 
-            return (
-              <TableRow key={transfer.id}>
-                <TableCell>
-                  <div>
-                    <div>{item?.name}</div>
-                    <div className="text-xs text-muted-foreground">{item?.description}</div>
-                  </div>
-                </TableCell>
-                <TableCell>{fromUnit?.name}</TableCell>
-                <TableCell>{toUnit?.name}</TableCell>
-                <TableCell>
-                  <div className="text-sm">
-                    {new Date(transfer.createdAt).toLocaleDateString('pt-BR')}
-                  </div>
-                </TableCell>
-                <TableCell>{getTransferStatusBadge(transfer.status)}</TableCell>
-                <TableCell>
-                  <div className="text-sm text-muted-foreground max-w-xs truncate">
-                    {transfer.observations || '-'}
-                  </div>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+              return (
+                <TableRow key={transfer.id}>
+                  <TableCell>
+                    <div>
+                      <div>{item?.name}</div>
+                      <div className="text-xs text-muted-foreground">{item?.description}</div>
+                    </div>
+                  </TableCell>
+                  <TableCell>{fromUnit?.name}</TableCell>
+                  <TableCell>{toUnit?.name}</TableCell>
+                  <TableCell>
+                    <div className="text-sm">
+                      {new Date(transfer.createdAt).toLocaleDateString('pt-BR')}
+                    </div>
+                  </TableCell>
+                  <TableCell>{getTransferStatusBadge(transfer.status)}</TableCell>
+                  <TableCell>
+                    <div className="text-sm text-muted-foreground max-w-xs truncate">
+                      {transfer.observations || '-'}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
     );
   };
 
@@ -308,6 +325,97 @@ export function DesignerDashboard() {
 
       {/* Solicitações de Móveis */}
       <FurnitureRequestsPanel />
+
+      {/* Card de Solicitação de Retirada */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Trash2 className="h-5 w-5" />
+                Solicitar Retirada / Descarte
+              </CardTitle>
+              <CardDescription>Solicite a retirada de móveis das unidades</CardDescription>
+            </div>
+            <Button onClick={() => setRequestRemovalDialogOpen(true)}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              Solicitar Retirada
+            </Button>
+          </div>
+        </CardHeader>
+        {myRemovalRequests.length > 0 && (
+          <CardContent>
+            <div className="overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0">
+              <Table className="min-w-[800px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Item</TableHead>
+                    <TableHead>Unidade</TableHead>
+                    <TableHead>Qtd</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Decisão</TableHead>
+                    <TableHead>Data</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {myRemovalRequests.map((request) => {
+                    const item = getItemById(request.itemId);
+                    const unit = getUnitById(request.unitId);
+                    
+                    const getRemovalStatusBadge = (status: string) => {
+                      const statusConfig: Record<string, { label: string; variant: any; icon: any }> = {
+                        pending: { label: 'Aguardando Avaliação', variant: 'outline', icon: Clock },
+                        approved_storage: { label: 'Aguardando Coleta', variant: 'default', icon: Clock },
+                        approved_disposal: { label: 'Aguardando Coleta', variant: 'default', icon: Clock },
+                        awaiting_pickup: { label: 'Aguardando Coleta', variant: 'default', icon: Clock },
+                        in_transit: { label: 'Em Trânsito', variant: 'default', icon: Armchair },
+                        completed: { label: 'Concluído', variant: 'secondary', icon: CheckCircle },
+                        rejected: { label: 'Rejeitado', variant: 'destructive', icon: XCircle },
+                      };
+                      const config = statusConfig[status] || statusConfig.pending;
+                      const Icon = config.icon;
+                      return (
+                        <Badge variant={config.variant} className="flex items-center gap-1 w-fit">
+                          <Icon className="h-3 w-3" />
+                          {config.label}
+                        </Badge>
+                      );
+                    };
+
+                    return (
+                      <TableRow key={request.id}>
+                        <TableCell>
+                          <div>
+                            <div>{item?.name}</div>
+                            <div className="text-xs text-muted-foreground">{item?.description}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell>{unit?.name}</TableCell>
+                        <TableCell>{request.quantity}</TableCell>
+                        <TableCell>{getRemovalStatusBadge(request.status)}</TableCell>
+                        <TableCell>
+                          {request.status === 'approved_storage' && (
+                            <Badge variant="default">Armazenagem</Badge>
+                          )}
+                          {request.status === 'approved_disposal' && (
+                            <Badge variant="destructive">Descarte</Badge>
+                          )}
+                          {(request.status === 'pending' || request.status === 'rejected') && (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {new Date(request.createdAt).toLocaleDateString('pt-BR')}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        )}
+      </Card>
 
       {/* Seletor de Unidade */}
       <Card>
@@ -429,71 +537,70 @@ export function DesignerDashboard() {
                     Nenhuma solicitação pendente
                   </div>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead>Unidade</TableHead>
-                        <TableHead>Quantidade</TableHead>
-                        <TableHead>Solicitante</TableHead>
-                        <TableHead>Motivo</TableHead>
-                        <TableHead>Data</TableHead>
-                        <TableHead>Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {pendingRemovalRequests.map((request) => {
-                        const item = getItemById(request.itemId);
-                        const unit = getUnitById(request.unitId);
-                        const requester = getUserById(request.requestedByUserId);
+                  <div className="overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0">
+                    <Table className="min-w-[900px]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Item</TableHead>
+                          <TableHead>Unidade</TableHead>
+                          <TableHead>Quantidade</TableHead>
+                          <TableHead>Solicitante</TableHead>
+                          <TableHead>Motivo</TableHead>
+                          <TableHead>Data</TableHead>
+                          <TableHead>Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pendingRemovalRequests.map((request) => {
+                          const item = getItemById(request.itemId);
+                          const unit = getUnitById(request.unitId);
+                          const requester = getUserById(request.requestedByUserId);
 
-                        return (
-                          <TableRow key={request.id}>
-                            <TableCell>
-                              <div>
-                                <div>{item?.name}</div>
-                                <div className="text-xs text-gray-500">{item?.description}</div>
-                              </div>
-                            </TableCell>
-                            <TableCell>{unit?.name}</TableCell>
-                            <TableCell>{request.quantity}</TableCell>
-                            <TableCell>{requester?.name}</TableCell>
-                            <TableCell>
-                              <div className="text-sm text-gray-600 max-w-xs">{request.reason}</div>
-                            </TableCell>
-                            <TableCell>
-                              {new Date(request.createdAt).toLocaleDateString('pt-BR')}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleApproveRemoval(request.id, 'storage')}
-                                >
-                                  Armazenar
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleApproveRemoval(request.id, 'disposal')}
-                                >
-                                  Descartar
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handleRejectRemoval(request.id)}
-                                >
-                                  Rejeitar
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+                          return (
+                            <TableRow key={request.id}>
+                              <TableCell>
+                                <div>
+                                  <div>{item?.name}</div>
+                                  <div className="text-xs text-gray-500">{item?.description}</div>
+                                </div>
+                              </TableCell>
+                              <TableCell>{unit?.name}</TableCell>
+                              <TableCell>{request.quantity}</TableCell>
+                              <TableCell>{requester?.name}</TableCell>
+                              <TableCell>
+                                <div className="text-sm text-gray-600 max-w-xs">{request.reason}</div>
+                              </TableCell>
+                              <TableCell>
+                                {new Date(request.createdAt).toLocaleDateString('pt-BR')}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setSelectedRemovalRequest(request.id);
+                                      setRemovalDialogOpen(true);
+                                      setDisposalJustification('');
+                                    }}
+                                  >
+                                    Avaliar
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handleRejectRemoval(request.id)}
+                                  >
+                                    Rejeitar
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </TabsContent>
 
@@ -503,64 +610,66 @@ export function DesignerDashboard() {
                     Nenhuma solicitação aprovada
                   </div>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Item</TableHead>
-                        <TableHead>Unidade</TableHead>
-                        <TableHead>Quantidade</TableHead>
-                        <TableHead>Decisão</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Justificativa</TableHead>
-                        <TableHead>Data Aprovação</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {approvedRemovalRequests.map((request) => {
-                        const item = getItemById(request.itemId);
-                        const unit = getUnitById(request.unitId);
-                        
-                        const getStatusBadge = (status: string) => {
-                          const statusConfig: Record<string, { label: string; variant: any }> = {
-                            approved_storage: { label: 'Aguardando Coleta', variant: 'outline' },
-                            approved_disposal: { label: 'Aguardando Coleta', variant: 'outline' },
-                            awaiting_pickup: { label: 'Aguardando Coleta', variant: 'outline' },
-                            in_transit: { label: 'Em Trânsito', variant: 'default' },
-                            completed: { label: 'Concluído', variant: 'secondary' },
+                  <div className="overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0">
+                    <Table className="min-w-[900px]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Item</TableHead>
+                          <TableHead>Unidade</TableHead>
+                          <TableHead>Quantidade</TableHead>
+                          <TableHead>Decisão</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Justificativa</TableHead>
+                          <TableHead>Data Aprovação</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {approvedRemovalRequests.map((request) => {
+                          const item = getItemById(request.itemId);
+                          const unit = getUnitById(request.unitId);
+                          
+                          const getStatusBadge = (status: string) => {
+                            const statusConfig: Record<string, { label: string; variant: any }> = {
+                              approved_storage: { label: 'Aguardando Coleta', variant: 'outline' },
+                              approved_disposal: { label: 'Aguardando Coleta', variant: 'outline' },
+                              awaiting_pickup: { label: 'Aguardando Coleta', variant: 'outline' },
+                              in_transit: { label: 'Em Trânsito', variant: 'default' },
+                              completed: { label: 'Concluído', variant: 'secondary' },
+                            };
+                            const config = statusConfig[status] || statusConfig.approved_storage;
+                            return <Badge variant={config.variant}>{config.label}</Badge>;
                           };
-                          const config = statusConfig[status] || statusConfig.approved_storage;
-                          return <Badge variant={config.variant}>{config.label}</Badge>;
-                        };
 
-                        return (
-                          <TableRow key={request.id}>
-                            <TableCell>
-                              <div>
-                                <div>{item?.name}</div>
-                                <div className="text-xs text-gray-500">{item?.description}</div>
-                              </div>
-                            </TableCell>
-                            <TableCell>{unit?.name}</TableCell>
-                            <TableCell>{request.quantity}</TableCell>
-                            <TableCell>
-                              <Badge variant={request.status === 'approved_storage' ? 'default' : 'destructive'}>
-                                {request.status === 'approved_storage' ? 'Armazenagem' : 'Descarte'}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>{getStatusBadge(request.status)}</TableCell>
-                            <TableCell>
-                              <div className="text-sm text-gray-600 max-w-xs">
-                                {request.disposalJustification || '-'}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              {request.reviewedAt && new Date(request.reviewedAt).toLocaleDateString('pt-BR')}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+                          return (
+                            <TableRow key={request.id}>
+                              <TableCell>
+                                <div>
+                                  <div>{item?.name}</div>
+                                  <div className="text-xs text-gray-500">{item?.description}</div>
+                                </div>
+                              </TableCell>
+                              <TableCell>{unit?.name}</TableCell>
+                              <TableCell>{request.quantity}</TableCell>
+                              <TableCell>
+                                <Badge variant={request.status === 'approved_storage' ? 'default' : 'destructive'}>
+                                  {request.status === 'approved_storage' ? 'Armazenagem' : 'Descarte'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{getStatusBadge(request.status)}</TableCell>
+                              <TableCell>
+                                <div className="text-sm text-gray-600 max-w-xs">
+                                  {request.disposalJustification || '-'}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {request.reviewedAt && new Date(request.reviewedAt).toLocaleDateString('pt-BR')}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </TabsContent>
             </Tabs>
@@ -576,17 +685,22 @@ export function DesignerDashboard() {
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="pending" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="pending">
-                Pendentes ({pendingTransfers.length})
-              </TabsTrigger>
-              <TabsTrigger value="approved">
-                Aprovadas ({approvedTransfers.length})
-              </TabsTrigger>
-              <TabsTrigger value="completed">
-                Concluídas ({completedTransfers.length})
-              </TabsTrigger>
-            </TabsList>
+            <div className="overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0 scrollbar-hide">
+              <TabsList className="grid w-full min-w-[400px] sm:min-w-0 grid-cols-3">
+                <TabsTrigger value="pending" className="text-xs sm:text-sm">
+                  <span className="hidden sm:inline">Pendentes ({pendingTransfers.length})</span>
+                  <span className="sm:hidden">Pend. ({pendingTransfers.length})</span>
+                </TabsTrigger>
+                <TabsTrigger value="approved" className="text-xs sm:text-sm">
+                  <span className="hidden sm:inline">Aprovadas ({approvedTransfers.length})</span>
+                  <span className="sm:hidden">Aprov. ({approvedTransfers.length})</span>
+                </TabsTrigger>
+                <TabsTrigger value="completed" className="text-xs sm:text-sm">
+                  <span className="hidden sm:inline">Concluídas ({completedTransfers.length})</span>
+                  <span className="sm:hidden">Concl. ({completedTransfers.length})</span>
+                </TabsTrigger>
+              </TabsList>
+            </div>
 
             <TabsContent value="pending" className="space-y-4">
               {renderTransfersTable(pendingTransfers)}
@@ -673,7 +787,7 @@ export function DesignerDashboard() {
       {/* Dialog de Cadastro de Móvel */}
       <AddFurnitureDialog 
         open={addFurnitureDialogOpen} 
-        onClose={() => setAddFurnitureDialogOpen(false)} 
+        onOpenChange={setAddFurnitureDialogOpen} 
       />
 
       {/* Dialog de Aprovação de Retirada */}
@@ -731,13 +845,13 @@ export function DesignerDashboard() {
             </Button>
             <Button
               variant="default"
-              onClick={() => confirmRemovalDecision('storage')}
+              onClick={() => handleApproveRemoval('storage')}
             >
               Aprovar para Armazenagem
             </Button>
             <Button
               variant="destructive"
-              onClick={() => confirmRemovalDecision('disposal')}
+              onClick={() => handleApproveRemoval('disposal')}
               disabled={!disposalJustification.trim()}
             >
               Aprovar para Descarte
@@ -745,6 +859,12 @@ export function DesignerDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog de Solicitação de Retirada */}
+      <FurnitureRemovalDialog 
+        open={requestRemovalDialogOpen} 
+        onOpenChange={setRequestRemovalDialogOpen}
+      />
     </div>
   );
 }

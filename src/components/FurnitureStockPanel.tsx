@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../contexts/AppContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Armchair, Sofa, AlertCircle, Plus } from 'lucide-react';
+import { Armchair, Sofa, AlertCircle, Plus, Edit } from 'lucide-react';
+import { EditFurnitureStockDialog } from './EditFurnitureStockDialog';
 import {
   Table,
   TableBody,
@@ -20,6 +21,7 @@ interface FurnitureStockPanelProps {
 
 export function FurnitureStockPanel({ onAddFurniture }: FurnitureStockPanelProps) {
   const { items, getItemById, unitStocks, getWarehouseUnitId } = useApp();
+  const [editingStockId, setEditingStockId] = useState<string | null>(null);
 
   const warehouseId = getWarehouseUnitId();
   const warehouseStock = unitStocks.filter(s => s.unitId === warehouseId);
@@ -89,7 +91,7 @@ export function FurnitureStockPanel({ onAddFurniture }: FurnitureStockPanelProps
                   )}
                 </div>
                 
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center justify-between text-xs mb-2">
                   <span className="text-gray-500 truncate flex-1 mr-2">{stock.location}</span>
                   <div className="flex gap-2 items-center flex-shrink-0">
                     <span className={`font-semibold ${isLow ? 'text-red-600' : 'text-green-600'}`}>
@@ -99,6 +101,16 @@ export function FurnitureStockPanel({ onAddFurniture }: FurnitureStockPanelProps
                     <span className="text-gray-600">{stock.minimumQuantity}</span>
                   </div>
                 </div>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEditingStockId(stock.id)}
+                  className="w-full"
+                >
+                  <Edit className="h-3 w-3 mr-2" />
+                  Editar Estoque
+                </Button>
               </div>
             );
           })}
@@ -115,6 +127,7 @@ export function FurnitureStockPanel({ onAddFurniture }: FurnitureStockPanelProps
                 <TableHead className="text-center">Disponível</TableHead>
                 <TableHead className="text-center">Mínimo</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="text-center">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -154,6 +167,16 @@ export function FurnitureStockPanel({ onAddFurniture }: FurnitureStockPanelProps
                         <Badge variant="default" className="bg-green-600">Disponível</Badge>
                       )}
                     </TableCell>
+                    <TableCell className="text-center">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setEditingStockId(stock.id)}
+                      >
+                        <Edit className="h-4 w-4 mr-2" />
+                        Editar
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 );
               })}
@@ -185,35 +208,15 @@ export function FurnitureStockPanel({ onAddFurniture }: FurnitureStockPanelProps
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="all" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 text-xs">
+          <TabsList className="grid w-full grid-cols-2 text-xs">
             <TabsTrigger value="all" className="text-xs">
-              <span className="hidden sm:inline">Todos</span>
-              <span className="sm:hidden">Td</span>
+              <span>Todos</span>
               <span className="ml-1">({furnitureStock.length})</span>
-            </TabsTrigger>
-            <TabsTrigger value="chairs" className="text-xs">
-              <span className="hidden sm:inline">Cadeiras</span>
-              <span className="sm:hidden">Cd</span>
-              <span className="ml-1">({chairs.length})</span>
-            </TabsTrigger>
-            <TabsTrigger value="tables" className="text-xs">
-              <span className="hidden sm:inline">Mesas</span>
-              <span className="sm:hidden">Ms</span>
-              <span className="ml-1">({tables.length})</span>
-            </TabsTrigger>
-            <TabsTrigger value="storage" className="text-xs">
-              <span className="hidden lg:inline">Armazenamento</span>
-              <span className="lg:hidden">Arm</span>
-              <span className="ml-1 hidden sm:inline">({storage.length})</span>
-            </TabsTrigger>
-            <TabsTrigger value="seating" className="text-xs">
-              <span className="hidden lg:inline">Assentos</span>
-              <span className="lg:hidden">Ass</span>
-              <span className="ml-1 hidden sm:inline">({seating.length})</span>
             </TabsTrigger>
             <TabsTrigger value="low" className="text-xs">
               <AlertCircle className="h-3 w-3 sm:mr-1" />
-              <span className="hidden sm:inline">Baixo</span>
+              <span className="hidden sm:inline">Baixo Estoque</span>
+              <span className="sm:hidden">Baixo</span>
               <span className="ml-1">({lowStockFurniture.length})</span>
             </TabsTrigger>
           </TabsList>
@@ -258,42 +261,6 @@ export function FurnitureStockPanel({ onAddFurniture }: FurnitureStockPanelProps
               </Card>
             </div>
             {renderFurnitureTable(furnitureStock, 'Nenhum móvel em estoque')}
-          </TabsContent>
-
-          <TabsContent value="chairs" className="space-y-3 sm:space-y-4">
-            <div className="bg-blue-50 p-2 sm:p-3 rounded-lg border border-blue-200 mb-3 sm:mb-4">
-              <p className="text-xs sm:text-sm text-blue-900">
-                <strong>Cadeiras:</strong> Cadeiras ergonômicas, giratórias e de escritório
-              </p>
-            </div>
-            {renderFurnitureTable(chairs, 'Nenhuma cadeira em estoque')}
-          </TabsContent>
-
-          <TabsContent value="tables" className="space-y-3 sm:space-y-4">
-            <div className="bg-purple-50 p-2 sm:p-3 rounded-lg border border-purple-200 mb-3 sm:mb-4">
-              <p className="text-xs sm:text-sm text-purple-900">
-                <strong>Mesas:</strong> Mesas de reunião, escrivaninhas executivas e bancadas
-              </p>
-            </div>
-            {renderFurnitureTable(tables, 'Nenhuma mesa em estoque')}
-          </TabsContent>
-
-          <TabsContent value="storage" className="space-y-3 sm:space-y-4">
-            <div className="bg-green-50 p-2 sm:p-3 rounded-lg border border-green-200 mb-3 sm:mb-4">
-              <p className="text-xs sm:text-sm text-green-900">
-                <strong>Armazenamento:</strong> Armários, estantes e móveis de organização
-              </p>
-            </div>
-            {renderFurnitureTable(storage, 'Nenhum item de armazenamento em estoque')}
-          </TabsContent>
-
-          <TabsContent value="seating" className="space-y-3 sm:space-y-4">
-            <div className="bg-orange-50 p-2 sm:p-3 rounded-lg border border-orange-200 mb-3 sm:mb-4">
-              <p className="text-xs sm:text-sm text-orange-900">
-                <strong>Assentos:</strong> Poltronas, sofás e mobiliário de recepção
-              </p>
-            </div>
-            {renderFurnitureTable(seating, 'Nenhum assento em estoque')}
           </TabsContent>
 
           <TabsContent value="low" className="space-y-3 sm:space-y-4">
@@ -349,16 +316,27 @@ export function FurnitureStockPanel({ onAddFurniture }: FurnitureStockPanelProps
                             </div>
                           </div>
                         </div>
-                        <div className="text-right flex-shrink-0 sm:ml-4">
-                          <div className="text-2xl sm:text-3xl font-bold text-red-600">
-                            {stock.quantity}
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-2xl sm:text-3xl font-bold text-red-600">
+                              {stock.quantity}
+                            </div>
+                            <div className="text-xs sm:text-sm text-gray-600">
+                              de {stock.minimumQuantity} mínimo
+                            </div>
+                            <div className="text-xs text-red-600 font-medium mt-1">
+                              Faltam {stock.minimumQuantity - stock.quantity}
+                            </div>
                           </div>
-                          <div className="text-xs sm:text-sm text-gray-600">
-                            de {stock.minimumQuantity} mínimo
-                          </div>
-                          <div className="text-xs text-red-600 font-medium mt-1">
-                            Faltam {stock.minimumQuantity - stock.quantity}
-                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setEditingStockId(stock.id)}
+                            className="flex-shrink-0"
+                          >
+                            <Edit className="h-4 w-4 mr-2" />
+                            Editar
+                          </Button>
                         </div>
                       </div>
                     );
@@ -369,6 +347,15 @@ export function FurnitureStockPanel({ onAddFurniture }: FurnitureStockPanelProps
           </TabsContent>
         </Tabs>
       </CardContent>
+
+      {/* Dialog de Edição de Estoque */}
+      {editingStockId && (
+        <EditFurnitureStockDialog
+          open={!!editingStockId}
+          onOpenChange={(open) => !open && setEditingStockId(null)}
+          stockId={editingStockId}
+        />
+      )}
     </Card>
   );
 }

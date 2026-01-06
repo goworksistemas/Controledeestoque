@@ -80,7 +80,8 @@ export function FurnitureRemovalDialog({ open, onOpenChange }: FurnitureRemovalD
     try {
       const item = getItemById(formData.itemId);
 
-      addFurnitureRemovalRequest({
+      // Aguardar o salvamento no banco
+      await addFurnitureRemovalRequest({
         itemId: formData.itemId,
         unitId: currentUnit.id,
         requestedByUserId: currentUser.id,
@@ -89,6 +90,7 @@ export function FurnitureRemovalDialog({ open, onOpenChange }: FurnitureRemovalD
         status: 'pending',
       });
 
+      // Toast DEPOIS de salvar com sucesso
       toast.success('Solicitação enviada!', {
         description: `Aguardando aprovação do designer para retirada de ${item?.name}`,
       });
@@ -102,7 +104,10 @@ export function FurnitureRemovalDialog({ open, onOpenChange }: FurnitureRemovalD
 
       onOpenChange(false);
     } catch (error) {
-      toast.error('Erro ao criar solicitação');
+      console.error('Erro ao criar solicitação:', error);
+      toast.error('Erro ao criar solicitação', {
+        description: 'Por favor, tente novamente.'
+      });
     } finally {
       setIsSubmitting(false);
     }

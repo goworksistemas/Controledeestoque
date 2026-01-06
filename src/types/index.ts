@@ -39,7 +39,7 @@ export interface Unit {
   name: string;
   address: string;
   status: 'active' | 'inactive';
-  floors?: string[]; // Andares disponíveis na unidade
+  floors?: string[]; // Andares disponíveis na unidade (JSONB)
 }
 
 export interface Category {
@@ -113,13 +113,13 @@ export interface Loan {
   itemId: string;
   unitId: string;
   responsibleUserId: string;
-  responsibleName?: string; // Nome da pessoa que pegou emprestado (para controle simples)
   withdrawalDate: Date;
   expectedReturnDate: Date;
   returnDate?: Date;
   status: 'active' | 'overdue' | 'returned' | 'lost';
   observations?: string;
   serialNumber?: string;
+  quantity?: number;
 }
 
 export interface User {
@@ -203,13 +203,18 @@ export interface FurnitureRequestToDesigner {
   quantity: number;
   location: string; // Onde será colocado na unidade
   justification: string; // Por que precisa do móvel
-  status: 'pending_designer' | 'approved_designer' | 'awaiting_delivery' | 'in_transit' | 'completed' | 'rejected';
+  status: 'pending_designer' | 'approved_designer' | 'approved_storage' | 'separated' | 'awaiting_delivery' | 'in_transit' | 'pending_confirmation' | 'completed' | 'rejected';
+  qrCode?: string; // Código único para confirmação (gerado quando status vira in_transit)
   createdAt: Date;
   reviewedByDesignerId?: string; // Designer que aprovou/rejeitou
   reviewedAt?: Date;
+  approvedByStorageUserId?: string; // Almoxarifado storage que aprovou
+  approvedByStorageAt?: Date;
+  separatedByUserId?: string; // Quem separou o item
+  separatedAt?: Date;
   assignedToWarehouseUserId?: string; // Almoxarifado/motorista responsável
   assignedAt?: Date;
-  deliveredByUserId?: string;
+  deliveredByUserId?: string; // Motorista que entregou
   deliveredAt?: Date;
   completedAt?: Date;
   rejectionReason?: string;
@@ -237,9 +242,11 @@ export interface DeliveryBatch {
 // Confirmação de entrega com foto
 export interface DeliveryConfirmation {
   id: string;
-  batchId: string; // Referência ao lote
+  batchId?: string; // Referência ao lote (opcional se for entrega individual)
+  furnitureRequestId?: string; // Referência à solicitação individual de móvel
   type: 'delivery' | 'receipt' | 'requester'; // Entrega (motorista), Recebimento (recebedor), ou Confirmação do Solicitante
   confirmedByUserId: string;
+  receivedByUserId?: string; // Quem recebeu (validado por código diário)
   photoUrl: string; // Base64 ou URL da foto
   timestamp: Date;
   location?: { // Geolocalização opcional

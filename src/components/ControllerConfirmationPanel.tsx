@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -24,20 +24,32 @@ export function ControllerConfirmationPanel() {
     currentUser,
     currentUnit,
     deliveryBatches,
-    deliveryConfirmations,
+    getDeliveryBatchById,
+    confirmReceipt,
     requests,
     furnitureRequestsToDesigner,
     getItemById,
+    getUserById,
     getUserDailyCode,
     validateUserDailyCode,
-    confirmDeliveryByRequester,
-    getConfirmationsForBatch,
   } = useApp();
   
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [dailyCodeInput, setDailyCodeInput] = useState('');
-  const [notes, setNotes] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [currentDate, setCurrentDate] = useState(new Date().toDateString());
+
+  // Força re-render quando a data muda (após meia-noite)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const newDate = new Date().toDateString();
+      if (newDate !== currentDate) {
+        setCurrentDate(newDate);
+      }
+    }, 180 * 60 * 1000); // Verifica a cada 3 horas
+
+    return () => clearInterval(interval);
+  }, [currentDate]);
 
   // Encontrar lotes que estão pendentes de confirmação para a unidade atual
   const pendingBatches = useMemo(() => {
@@ -65,25 +77,23 @@ export function ControllerConfirmationPanel() {
       return;
     }
 
-    setIsSubmitting(true);
+    setIsConfirming(true);
 
     try {
-      await confirmDeliveryByRequester(selectedBatchId, {
+      await confirmReceipt(selectedBatchId, {
         userId: currentUser.id,
         userName: currentUser.name,
-        notes: notes.trim() || undefined,
         dailyCode: cleanCode,
       });
 
       toast.success('Recebimento confirmado com sucesso!');
       setSelectedBatchId(null);
       setDailyCodeInput('');
-      setNotes('');
     } catch (error) {
       console.error('Error confirming delivery:', error);
       toast.error('Erro ao confirmar recebimento');
     } finally {
-      setIsSubmitting(false);
+      setIsConfirming(false);
     }
   };
 
@@ -264,18 +274,6 @@ export function ControllerConfirmationPanel() {
               />
             </div>
 
-            {/* Observações */}
-            <div className="space-y-2">
-              <Label htmlFor="notes">Observações (opcional)</Label>
-              <Textarea
-                id="notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Condições dos itens, problemas, etc..."
-                rows={3}
-              />
-            </div>
-
             {/* Botões */}
             <div className="flex flex-col sm:flex-row gap-2 pt-4">
               <Button
@@ -283,17 +281,16 @@ export function ControllerConfirmationPanel() {
                 onClick={() => {
                   setSelectedBatchId(null);
                   setDailyCodeInput('');
-                  setNotes('');
                 }}
                 className="flex-1"
-                disabled={isSubmitting}
+                disabled={isConfirming}
               >
                 Voltar
               </Button>
               <Button
                 onClick={handleConfirm}
                 className="flex-1 bg-[#3F76FF] hover:bg-[#3F76FF]/90"
-                disabled={isSubmitting || !dailyCodeInput.trim()}
+                disabled={isConfirming || !dailyCodeInput.trim()}
               >
                 <CheckCircle className="mr-2 h-4 w-4" />
                 Confirmar Recebimento

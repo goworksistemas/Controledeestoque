@@ -16,6 +16,9 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import { DeliveryConfirmationDialog } from './DeliveryConfirmationDialog';
+import { FurnitureDeliveryConfirmationDialog } from './FurnitureDeliveryConfirmationDialog';
+import { MarkFurnitureDeliveryPendingDialog } from './MarkFurnitureDeliveryPendingDialog';
+import { FurnitureQRCodeScannerDialog } from './FurnitureQRCodeScannerDialog';
 import { DeliveryTimeline } from './DeliveryTimeline';
 import { MarkDeliveryPendingDialog } from './MarkDeliveryPendingDialog';
 
@@ -38,8 +41,11 @@ export function DriverDashboard() {
   const [selectedRequest, setSelectedRequest] = useState<{ id: string; type: 'material' | 'furniture_removal' | 'furniture_delivery' } | null>(null);
   const [actionType, setActionType] = useState<'pickup' | 'deliver' | null>(null);
   const [selectedBatchForConfirmation, setSelectedBatchForConfirmation] = useState<string | null>(null);
-  const [selectedBatchForTimeline, setSelectedBatchForTimeline] = useState<string | null>(null);
   const [selectedBatchForPending, setSelectedBatchForPending] = useState<string | null>(null);
+  const [selectedFurnitureForDelivery, setSelectedFurnitureForDelivery] = useState<string | null>(null);
+  const [selectedFurnitureForQRScan, setSelectedFurnitureForQRScan] = useState<string | null>(null);
+  const [selectedFurnitureForPending, setSelectedFurnitureForPending] = useState<string | null>(null);
+  const [selectedBatchForTimeline, setSelectedBatchForTimeline] = useState<string | null>(null);
   const [showTutorial, setShowTutorial] = useState(() => {
     const hasSeenTutorial = localStorage.getItem('driver-tutorial-seen');
     return !hasSeenTutorial;
@@ -67,13 +73,17 @@ export function DriverDashboard() {
     r => r.status === 'in_transit' && !itemsInBatches.has(r.id)
   );
 
-  // Entregas de móveis aprovadas por designers - NÃO MOSTRAR INDIVIDUAIS
-  // Devem ir em lotes pelo almoxarifado
-  const furnitureToDeliver: any[] = [];
-  const furnitureDeliveryInTransit: any[] = [];
+  // Entregas de móveis aprovadas por designers - INDIVIDUAIS atribuídas ao motorista
+  // Filtra entregas que foram atribuídas especificamente a este motorista
+  const furnitureToDeliver = furnitureRequestsToDesigner.filter(
+    r => r.status === 'in_transit' && 
+         r.assignedToWarehouseUserId === currentUser?.id &&
+         !itemsInBatches.has(r.id)
+  );
+  const furnitureDeliveryInTransit = furnitureToDeliver; // Mesma lista
 
   const totalToPickup = furnitureToCollect.length;
-  const totalInTransit = furnitureInTransit.length;
+  const totalInTransit = furnitureInTransit.length + furnitureDeliveryInTransit.length;
 
   // Notificar quando houver novos itens para retirar
   useEffect(() => {
@@ -201,7 +211,64 @@ export function DriverDashboard() {
     );
   };
 
-  // Função removida - entregas de móveis vão em lotes
+  const renderFurnitureDeliveryCard = (request: typeof furnitureRequestsToDesigner[0]) => {
+    const item = getItemById(request.itemId);
+    const unit = getUnitById(request.requestingUnitId);
+    const elapsed = request.assignedAt 
+      ? Math.floor((new Date().getTime() - new Date(request.assignedAt).getTime()) / 60000)
+      : 0;
+
+    return (
+      <Card key={request.id} className="border-2 border-green-200 bg-green-50/30">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3 mb-3">
+            <div className="p-3 rounded-lg bg-green-100">
+              <Armchair className="h-8 w-8 text-green-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-semibold text-lg mb-1 truncate">{item?.name}</h3>
+              <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
+                <Building2 className="h-4 w-4" />
+                <span className="truncate">{unit?.name}</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
+                <MapPin className="h-4 w-4" />
+                <span className="truncate">{request.location}</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-green-700">
+                <Clock className="h-4 w-4" />
+                <span>Atribuído há {elapsed} min</span>
+              </div>
+              <Badge variant="secondary" className="mt-2">Qtd: {request.quantity}</Badge>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Button 
+              className="w-full h-14 text-lg bg-green-600 hover:bg-green-700"
+              onClick={() => {
+                vibrate();
+                setSelectedFurnitureForQRScan(request.id);
+              }}
+            >
+              <QrCode className="h-6 w-6 mr-2" />
+              Confirmar Entrega c/ QR Code
+            </Button>
+            <Button 
+              variant="outline"
+              className="w-full h-12 text-sm border-2"
+              onClick={() => {
+                vibrate();
+                setSelectedFurnitureForPending(request.id);
+              }}
+            >
+              Marcar como Entregue (Confirmar Depois)
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
 
   const closeTutorial = () => {
     localStorage.setItem('driver-tutorial-seen', 'true');
@@ -359,13 +426,16 @@ export function DriverDashboard() {
       )}
 
       {/* Em Trânsito - PRIORIDADE MÁXIMA */}
-      {furnitureInTransit.length > 0 && (
+      {(furnitureInTransit.length > 0 || furnitureDeliveryInTransit.length > 0) && (
         <div>
           <h3 className="text-xl mb-3 flex items-center gap-2">
             <Truck className="h-6 w-6 text-purple-600" />
-            Em Trânsito - Coletas para Almoxarifado
+            Em Trânsito
           </h3>
           <div className="space-y-3">
+            {/* Entregas de móveis aprovados - Para unidades */}
+            {furnitureDeliveryInTransit.map(renderFurnitureDeliveryCard)}
+            {/* Coletas de móveis - Para almoxarifado */}
             {furnitureInTransit.map(renderInTransitFurniture)}
           </div>
         </div>
@@ -464,6 +534,33 @@ export function DriverDashboard() {
           batch={deliveryBatches.find(b => b.id === selectedBatchForPending)!}
           open={true}
           onClose={() => setSelectedBatchForPending(null)}
+        />
+      )}
+
+      {/* Dialog de Confirmação de Entrega de Móvel Individual */}
+      {selectedFurnitureForDelivery && (
+        <FurnitureDeliveryConfirmationDialog
+          request={furnitureRequestsToDesigner.find(r => r.id === selectedFurnitureForDelivery)!}
+          open={true}
+          onClose={() => setSelectedFurnitureForDelivery(null)}
+        />
+      )}
+
+      {/* Dialog de Escaneamento de QR Code para Móveis */}
+      {selectedFurnitureForQRScan && (
+        <FurnitureQRCodeScannerDialog
+          request={furnitureRequestsToDesigner.find(r => r.id === selectedFurnitureForQRScan)!}
+          open={true}
+          onClose={() => setSelectedFurnitureForQRScan(null)}
+        />
+      )}
+
+      {/* Dialog para Marcar Móveis como Pendentes */}
+      {selectedFurnitureForPending && (
+        <MarkFurnitureDeliveryPendingDialog
+          request={furnitureRequestsToDesigner.find(r => r.id === selectedFurnitureForPending)!}
+          open={true}
+          onClose={() => setSelectedFurnitureForPending(null)}
         />
       )}
     </div>

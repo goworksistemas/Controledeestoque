@@ -1,562 +1,503 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useApp } from '../contexts/AppContext';
-import { Card } from './ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Package2, TrendingUp, Truck, AlertCircle, Download, ArrowUpRight, ArrowDownRight, Sofa, Users, Palette } from 'lucide-react';
-
-type TimePeriod = '7days' | '30days' | '90days' | 'all';
-
-const COLORS = ['#3F76FF', '#00C5E9', '#606060', '#10b981', '#f59e0b'];
+import {
+  Armchair,
+  Package,
+  Users,
+  TrendingUp,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  ArrowRightLeft,
+  Eye,
+  Layers,
+  PieChart,
+  BarChart3
+} from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from './ui/table';
+import { AdminAnalytics } from './AdminAnalytics';
 
 interface AdminWarehouseDashboardProps {
-  onSwitchToDesigner?: () => void;
+  onSwitchToDesigner: () => void;
 }
 
 export function AdminWarehouseDashboard({ onSwitchToDesigner }: AdminWarehouseDashboardProps) {
-  const { items, unitStocks, requests, movements, furnitureTransfers, users, getItemById, getUnitById, getUserById, getWarehouseUnitId } = useApp();
-  const [timePeriod, setTimePeriod] = useState<TimePeriod>('30days');
-  const warehouseId = getWarehouseUnitId();
+  const {
+    units,
+    items,
+    users,
+    unitStocks,
+    furnitureRequestsToDesigner,
+    furnitureTransfers,
+    furnitureRemovalRequests,
+    getItemById,
+    getUnitById,
+    getUserById
+  } = useApp();
 
-  // Calcular data de início baseado no período
-  const getStartDate = (period: TimePeriod): Date => {
-    const now = new Date();
-    switch (period) {
-      case '7days':
-        return new Date(now.setDate(now.getDate() - 7));
-      case '30days':
-        return new Date(now.setDate(now.getDate() - 30));
-      case '90days':
-        return new Date(now.setDate(now.getDate() - 90));
-      default:
-        return new Date(2020, 0, 1);
-    }
+  // Móveis apenas (isFurniture = true)
+  const furnitureItems = items.filter(i => i.isFurniture && i.active);
+
+  // Estatísticas Gerais
+  const stats = useMemo(() => {
+    const totalFurniture = furnitureItems.length;
+    
+    const pendingDesignerRequests = furnitureRequestsToDesigner.filter(
+      r => r.status === 'pending_designer'
+    ).length;
+    
+    const approvedDesignerRequests = furnitureRequestsToDesigner.filter(
+      r => r.status === 'approved_designer' || 
+          r.status === 'approved_storage' ||
+          r.status === 'in_transit'
+    ).length;
+
+    const pendingTransfers = furnitureTransfers.filter(
+      t => t.status === 'pending'
+    ).length;
+
+    const approvedTransfers = furnitureTransfers.filter(
+      t => t.status === 'approved' || t.status === 'in_transit'
+    ).length;
+
+    const pendingRemovalRequests = furnitureRemovalRequests.filter(
+      r => r.status === 'pending_designer'
+    ).length;
+
+    const approvedStorageRequests = furnitureRemovalRequests.filter(
+      r => r.status === 'approved_storage'
+    ).length;
+
+    // Total de móveis no almoxarifado
+    const warehouseUnit = units.find(u => u.name === 'Almoxarifado Central');
+    const furnitureInWarehouse = warehouseUnit
+      ? unitStocks.filter(s => {
+          const item = items.find(i => i.id === s.itemId);
+          return item?.isFurniture && s.unitId === warehouseUnit.id && s.quantity > 0;
+        }).length
+      : 0;
+
+    return {
+      totalFurniture,
+      pendingDesignerRequests,
+      approvedDesignerRequests,
+      pendingTransfers,
+      approvedTransfers,
+      pendingRemovalRequests,
+      approvedStorageRequests,
+      furnitureInWarehouse
+    };
+  }, [furnitureItems, furnitureRequestsToDesigner, furnitureTransfers, furnitureRemovalRequests, unitStocks, items, units]);
+
+  // Solicitações Pendentes de Designer
+  const pendingRequests = useMemo(() => {
+    return furnitureRequestsToDesigner
+      .filter(r => r.status === 'pending_designer')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 10);
+  }, [furnitureRequestsToDesigner]);
+
+  // Transferências Recentes
+  const recentTransfers = useMemo(() => {
+    return furnitureTransfers
+      .filter(t => t.status !== 'completed' && t.status !== 'rejected')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 10);
+  }, [furnitureTransfers]);
+
+  // Solicitações de Remoção Pendentes
+  const removalRequests = useMemo(() => {
+    return furnitureRemovalRequests
+      .filter(r => r.status === 'pending_designer' || r.status === 'approved_storage')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 10);
+  }, [furnitureRemovalRequests]);
+
+  const getStatusBadge = (status: string) => {
+    const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+      pending: { label: 'Pendente', variant: 'outline' },
+      pending_designer: { label: 'Aguardando Designer', variant: 'outline' },
+      approved_designer: { label: 'Aprovado', variant: 'default' },
+      approved: { label: 'Aprovado', variant: 'default' },
+      approved_storage: { label: 'Aprovado Armazenagem', variant: 'default' },
+      in_transit: { label: 'Em Trânsito', variant: 'secondary' },
+      completed: { label: 'Concluído', variant: 'outline' },
+      rejected: { label: 'Rejeitado', variant: 'destructive' },
+      approved_disposal: { label: 'Aprovado Descarte', variant: 'destructive' },
+    };
+
+    const config = statusConfig[status] || { label: status, variant: 'outline' as const };
+    return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
-  const startDate = getStartDate(timePeriod);
-
-  // Filtrar movimentações do almoxarifado
-  const warehouseMovements = useMemo(() => {
-    return movements.filter(mov => {
-      const matchesDate = new Date(mov.timestamp) >= startDate;
-      const isWarehouse = mov.unitId === warehouseId;
-      return matchesDate && isWarehouse;
+  const formatDate = (date: Date) => {
+    return new Date(date).toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
     });
-  }, [movements, startDate, warehouseId]);
-
-  // Filtrar requisições aprovadas
-  const filteredRequests = useMemo(() => {
-    return requests.filter(req => {
-      const matchesDate = new Date(req.createdAt) >= startDate;
-      return matchesDate;
-    });
-  }, [requests, startDate]);
-
-  // Transferências de móveis
-  const filteredFurnitureTransfers = useMemo(() => {
-    return furnitureTransfers.filter(ft => {
-      const matchesDate = new Date(ft.createdAt) >= startDate;
-      return matchesDate;
-    });
-  }, [furnitureTransfers, startDate]);
-
-  // Métricas principais
-  const metrics = useMemo(() => {
-    const totalWarehouseStock = unitStocks
-      .filter(s => s.unitId === warehouseId)
-      .reduce((sum, s) => sum + s.quantity, 0);
-
-    const totalEntries = warehouseMovements.filter(m => m.type === 'entrada').reduce((sum, m) => sum + m.quantity, 0);
-    const totalExits = warehouseMovements.filter(m => m.type === 'saida').reduce((sum, m) => sum + m.quantity, 0);
-    
-    const pendingRequests = filteredRequests.filter(r => r.status === 'pending' || r.status === 'approved').length;
-    const completedRequests = filteredRequests.filter(r => r.status === 'completed').length;
-    
-    const furnitureInTransit = filteredFurnitureTransfers.filter(f => f.status === 'approved').length;
-    const furnitureCompleted = filteredFurnitureTransfers.filter(f => f.status === 'completed').length;
-
-    // Designers ativos
-    const designers = users.filter(u => u.role === 'designer');
-    const warehouseStaff = users.filter(u => u.role === 'warehouse');
-
-    return {
-      totalWarehouseStock,
-      totalEntries,
-      totalExits,
-      pendingRequests,
-      completedRequests,
-      furnitureInTransit,
-      furnitureCompleted,
-      designers: designers.length,
-      warehouseStaff: warehouseStaff.length,
-      stockTurnover: totalEntries > 0 ? ((totalExits / totalEntries) * 100).toFixed(1) : '0',
-    };
-  }, [unitStocks, warehouseMovements, filteredRequests, filteredFurnitureTransfers, users]);
-
-  // Itens mais movimentados no almoxarifado
-  const topMovedItems = useMemo(() => {
-    const itemCounts: Record<string, { name: string; entries: number; exits: number; total: number }> = {};
-    
-    warehouseMovements.forEach(mov => {
-      const item = getItemById(mov.itemId);
-      if (item) {
-        if (!itemCounts[item.id]) {
-          itemCounts[item.id] = { name: item.name, entries: 0, exits: 0, total: 0 };
-        }
-        if (mov.type === 'entrada') {
-          itemCounts[item.id].entries += mov.quantity;
-        } else if (mov.type === 'saida') {
-          itemCounts[item.id].exits += mov.quantity;
-        }
-        itemCounts[item.id].total += mov.quantity;
-      }
-    });
-
-    return Object.values(itemCounts)
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5);
-  }, [warehouseMovements, getItemById]);
-
-  // Distribuição de requisições por status
-  const requestsDistribution = useMemo(() => {
-    const statusCount: Record<string, number> = {};
-    
-    filteredRequests.forEach(req => {
-      const status = req.status;
-      statusCount[status] = (statusCount[status] || 0) + 1;
-    });
-
-    const statusLabels: Record<string, string> = {
-      pending: 'Pendentes',
-      approved: 'Aprovadas',
-      processing: 'Em Processamento',
-      completed: 'Concluídas',
-      rejected: 'Rejeitadas',
-    };
-
-    return Object.entries(statusCount).map(([status, count]) => ({
-      name: statusLabels[status] || status,
-      value: count,
-    }));
-  }, [filteredRequests]);
-
-  // Tendência de entradas vs saídas no almoxarifado
-  const trendData = useMemo(() => {
-    const periods: { name: string; entradas: number; saídas: number }[] = [];
-    
-    for (let i = 6; i >= 0; i--) {
-      const periodEnd = new Date();
-      periodEnd.setDate(periodEnd.getDate() - (i * (timePeriod === '7days' ? 1 : timePeriod === '30days' ? 4 : 12)));
-      
-      const periodStart = new Date(periodEnd);
-      periodStart.setDate(periodEnd.getDate() - (timePeriod === '7days' ? 1 : timePeriod === '30days' ? 4 : 12));
-
-      const periodMovements = warehouseMovements.filter(m => {
-        const date = new Date(m.timestamp);
-        return date >= periodStart && date <= periodEnd;
-      });
-
-      const periodName = timePeriod === '7days' 
-        ? periodEnd.toLocaleDateString('pt-BR', { weekday: 'short' })
-        : periodEnd.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
-
-      periods.push({
-        name: periodName,
-        entradas: periodMovements.filter(m => m.type === 'entrada').reduce((sum, m) => sum + m.quantity, 0),
-        saídas: periodMovements.filter(m => m.type === 'saida').reduce((sum, m) => sum + m.quantity, 0),
-      });
-    }
-
-    return periods;
-  }, [warehouseMovements, timePeriod]);
-
-  // Móveis mais transferidos
-  const topFurnitureTransfers = useMemo(() => {
-    const furnitureCounts: Record<string, { name: string; count: number }> = {};
-    
-    filteredFurnitureTransfers.forEach(ft => {
-      const item = getItemById(ft.itemId);
-      if (item) {
-        if (!furnitureCounts[item.id]) {
-          furnitureCounts[item.id] = { name: item.name, count: 0 };
-        }
-        furnitureCounts[item.id].count += 1;
-      }
-    });
-
-    return Object.values(furnitureCounts)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-  }, [filteredFurnitureTransfers, getItemById]);
-
-  // Estoque crítico no almoxarifado
-  const criticalWarehouseStock = useMemo(() => {
-    const critical = unitStocks
-      .filter(stock => {
-        if (stock.unitId !== warehouseId) return false;
-        return stock.quantity < stock.minimumQuantity;
-      })
-      .map(stock => {
-        const item = getItemById(stock.itemId);
-        return {
-          itemName: item?.name || 'Desconhecido',
-          quantity: stock.quantity,
-          minimum: stock.minimumQuantity,
-          deficit: stock.minimumQuantity - stock.quantity,
-        };
-      })
-      .sort((a, b) => b.deficit - a.deficit)
-      .slice(0, 5);
-
-    return critical;
-  }, [unitStocks, getItemById]);
-
-  // Variação de estoque
-  const stockVariation = useMemo(() => {
-    const currentEntries = metrics.totalEntries;
-    const currentExits = metrics.totalExits;
-    
-    const variation = currentEntries > 0 
-      ? (((currentEntries - currentExits) / currentEntries) * 100).toFixed(1)
-      : '0';
-
-    return {
-      variation: parseFloat(variation),
-      isPositive: parseFloat(variation) > 0,
-    };
-  }, [metrics]);
-
-  // Designers com mais aprovações (simulado - na prática viria de furnitureRequestsToDesigner)
-  const topDesigners = useMemo(() => {
-    const designers = users.filter(u => u.role === 'designer');
-    return designers.map(d => ({
-      name: d.name,
-      jobTitle: d.jobTitle || 'Designer',
-      approvals: Math.floor(Math.random() * 15) + 1, // Simulado
-    })).sort((a, b) => b.approvals - a.approvals);
-  }, [users]);
+  };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="space-y-6 p-4 md:p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="border-b border-border bg-card">
-        <div className="px-4 py-6 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-neutral-900 dark:text-neutral-100">Admin - Almoxarifado & Design</h1>
-              <p className="text-muted-foreground mt-1">
-                Análise de estoque central, distribuições e aprovações de designers
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 w-full sm:w-auto">
-              <Button variant="outline" className="gap-2">
-                <Download className="h-4 w-4" />
-                Exportar Relatório
-              </Button>
-              {onSwitchToDesigner && (
-                <Button 
-                  variant="default" 
-                  className="gap-2 bg-purple-600 hover:bg-purple-700"
-                  onClick={onSwitchToDesigner}
-                >
-                  <Palette className="h-4 w-4" />
-                  Acessar Modo Designer
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {/* Filtros */}
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="flex-1 sm:max-w-xs">
-              <Select value={timePeriod} onValueChange={(v) => setTimePeriod(v as TimePeriod)}>
-                <SelectTrigger className="bg-background">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="7days">Últimos 7 dias</SelectItem>
-                  <SelectItem value="30days">Últimos 30 dias</SelectItem>
-                  <SelectItem value="90days">Últimos 90 dias</SelectItem>
-                  <SelectItem value="all">Todo o período</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold text-slate-900">Dashboard Administrativo - Design</h1>
+          <p className="text-sm text-slate-600 mt-1">Visão geral do sistema de gestão de móveis</p>
         </div>
+
+        <Button
+          onClick={onSwitchToDesigner}
+          className="gap-2 bg-gradient-to-r from-[#3F76FF] to-[#00C5E9] hover:opacity-90"
+        >
+          <Eye className="h-4 w-4" />
+          Ver como Designer
+        </Button>
       </div>
 
-      {/* Métricas Principais */}
-      <div className="px-4 py-6 sm:px-6 lg:px-8">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {/* Estoque Total */}
-          <Card className="p-6 bg-card border-border">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Estoque Total</p>
-                <p className="text-3xl mt-2 text-neutral-900 dark:text-neutral-100">{metrics.totalWarehouseStock}</p>
-                <div className="flex items-center gap-1 mt-2">
-                  {stockVariation.isPositive ? (
-                    <ArrowUpRight className="h-4 w-4 text-green-500" />
-                  ) : (
-                    <ArrowDownRight className="h-4 w-4 text-red-500" />
-                  )}
-                  <span className={`text-sm ${stockVariation.isPositive ? 'text-green-500' : 'text-red-500'}`}>
-                    {Math.abs(stockVariation.variation)}%
-                  </span>
-                  <span className="text-sm text-muted-foreground">vs. entradas</span>
-                </div>
-              </div>
-              <div className="rounded-full bg-[#3F76FF]/10 p-3">
-                <Package2 className="h-5 w-5 text-[#3F76FF]" />
-              </div>
-            </div>
-          </Card>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total de Móveis</CardTitle>
+            <Armchair className="h-4 w-4 text-[#3F76FF]" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.totalFurniture}</div>
+            <p className="text-xs text-slate-600 mt-1">
+              {stats.furnitureInWarehouse} no almoxarifado
+            </p>
+          </CardContent>
+        </Card>
 
-          {/* Giro de Estoque */}
-          <Card className="p-6 bg-card border-border">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Giro de Estoque</p>
-                <p className="text-3xl mt-2 text-neutral-900 dark:text-neutral-100">{metrics.stockTurnover}%</p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  {metrics.totalExits} saídas / {metrics.totalEntries} entradas
-                </p>
-              </div>
-              <div className="rounded-full bg-[#00C5E9]/10 p-3">
-                <TrendingUp className="h-5 w-5 text-[#00C5E9]" />
-              </div>
-            </div>
-          </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Solicitações Pendentes</CardTitle>
+            <Clock className="h-4 w-4 text-yellow-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.pendingDesignerRequests}</div>
+            <p className="text-xs text-slate-600 mt-1">
+              {stats.approvedDesignerRequests} aprovadas
+            </p>
+          </CardContent>
+        </Card>
 
-          {/* Requisições Pendentes */}
-          <Card className="p-6 bg-card border-border">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Requisições Pendentes</p>
-                <p className="text-3xl mt-2 text-neutral-900 dark:text-neutral-100">{metrics.pendingRequests}</p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  {metrics.completedRequests} concluídas
-                </p>
-              </div>
-              <div className="rounded-full bg-orange-500/10 p-3">
-                <AlertCircle className="h-5 w-5 text-orange-500" />
-              </div>
-            </div>
-          </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Transferências</CardTitle>
+            <ArrowRightLeft className="h-4 w-4 text-[#00C5E9]" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.pendingTransfers}</div>
+            <p className="text-xs text-slate-600 mt-1">
+              {stats.approvedTransfers} em andamento
+            </p>
+          </CardContent>
+        </Card>
 
-          {/* Transferências de Móveis */}
-          <Card className="p-6 bg-card border-border">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Transferências de Móveis</p>
-                <p className="text-3xl mt-2 text-neutral-900 dark:text-neutral-100">{metrics.furnitureInTransit}</p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  {metrics.furnitureCompleted} concluídas
-                </p>
-              </div>
-              <div className="rounded-full bg-green-500/10 p-3">
-                <Sofa className="h-5 w-5 text-green-500" />
-              </div>
-            </div>
-          </Card>
-        </div>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Remoções Pendentes</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-orange-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.pendingRemovalRequests}</div>
+            <p className="text-xs text-slate-600 mt-1">
+              {stats.approvedStorageRequests} aguardando armazenagem
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
-        {/* Gráficos */}
-        <div className="grid gap-6 mt-6 lg:grid-cols-2">
-          {/* Tendência de Entradas vs Saídas */}
-          <Card className="p-6 bg-card border-border">
-            <h3 className="text-lg mb-4 text-neutral-900 dark:text-neutral-100">Entradas vs Saídas - Almoxarifado</h3>
-            <div className="h-[300px] flex items-center justify-center border border-dashed border-border rounded-lg">
-              <div className="text-center text-muted-foreground">
-                <TrendingUp className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>Gráfico de entradas e saídas</p>
-                <p className="text-sm">(Dados: {trendData.length} períodos)</p>
-              </div>
-            </div>
-          </Card>
+      {/* Tabs com Detalhes */}
+      <Tabs defaultValue="requests" className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="requests">
+            <Clock className="h-4 w-4 mr-2" />
+            <span className="hidden sm:inline">Solicitações</span>
+            <span className="sm:hidden">Solic.</span>
+          </TabsTrigger>
+          <TabsTrigger value="transfers">
+            <ArrowRightLeft className="h-4 w-4 mr-2" />
+            <span className="hidden sm:inline">Transferências</span>
+            <span className="sm:hidden">Trans.</span>
+          </TabsTrigger>
+          <TabsTrigger value="removals">
+            <AlertTriangle className="h-4 w-4 mr-2" />
+            <span className="hidden sm:inline">Remoções</span>
+            <span className="sm:hidden">Rem.</span>
+          </TabsTrigger>
+        </TabsList>
 
-          {/* Distribuição de Status de Requisições */}
-          <Card className="p-6 bg-card border-border">
-            <h3 className="text-lg mb-4 text-neutral-900 dark:text-neutral-100">Status das Requisições</h3>
-            <div className="h-[300px] flex flex-col items-center justify-center border border-dashed border-border rounded-lg">
-              <div className="text-center text-muted-foreground mb-4">
-                <AlertCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>Gráfico de distribuição de status</p>
+        <TabsContent value="requests" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Solicitações Pendentes de Análise</CardTitle>
+              <CardDescription>Pedidos de móveis aguardando aprovação do designer</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Móvel</TableHead>
+                      <TableHead>Qtd</TableHead>
+                      <TableHead className="hidden md:table-cell">Unidade</TableHead>
+                      <TableHead className="hidden lg:table-cell">Solicitante</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="hidden sm:table-cell">Data</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pendingRequests.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center text-slate-500 py-8">
+                          <CheckCircle className="h-10 w-10 mx-auto mb-2 text-green-500" />
+                          <p>Nenhuma solicitação pendente</p>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      pendingRequests.map((request) => {
+                        const item = getItemById(request.itemId);
+                        const unit = getUnitById(request.requestingUnitId);
+                        const requester = getUserById(request.requestedByUserId);
+
+                        return (
+                          <TableRow key={request.id}>
+                            <TableCell className="font-medium">
+                              {item?.name || 'Item não encontrado'}
+                            </TableCell>
+                            <TableCell>{request.quantity}</TableCell>
+                            <TableCell className="hidden md:table-cell">
+                              {unit?.name || '-'}
+                            </TableCell>
+                            <TableCell className="hidden lg:table-cell">
+                              {requester?.name || '-'}
+                            </TableCell>
+                            <TableCell>{getStatusBadge(request.status)}</TableCell>
+                            <TableCell className="hidden sm:table-cell text-xs text-slate-600">
+                              {formatDate(request.createdAt)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
               </div>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                {requestsDistribution.map((item, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
-                    <span>{item.name}: {item.value}</span>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="transfers" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Transferências em Andamento</CardTitle>
+              <CardDescription>Movimentações de móveis entre unidades</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Móvel</TableHead>
+                      <TableHead className="hidden md:table-cell">Origem</TableHead>
+                      <TableHead className="hidden md:table-cell">Destino</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="hidden sm:table-cell">Data</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {recentTransfers.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-slate-500 py-8">
+                          Nenhuma transferência em andamento
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      recentTransfers.map((transfer) => {
+                        const item = getItemById(transfer.itemId);
+                        const fromUnit = getUnitById(transfer.fromUnitId);
+                        const toUnit = getUnitById(transfer.toUnitId);
+
+                        return (
+                          <TableRow key={transfer.id}>
+                            <TableCell className="font-medium">
+                              {item?.name || 'Item não encontrado'}
+                            </TableCell>
+                            <TableCell className="hidden md:table-cell">
+                              {fromUnit?.name || '-'}
+                            </TableCell>
+                            <TableCell className="hidden md:table-cell">
+                              {toUnit?.name || '-'}
+                            </TableCell>
+                            <TableCell>{getStatusBadge(transfer.status)}</TableCell>
+                            <TableCell className="hidden sm:table-cell text-xs text-slate-600">
+                              {formatDate(transfer.createdAt)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="removals" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Solicitações de Remoção</CardTitle>
+              <CardDescription>Pedidos de armazenagem ou descarte de móveis</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Móvel</TableHead>
+                      <TableHead className="hidden md:table-cell">Unidade</TableHead>
+                      <TableHead className="hidden lg:table-cell">Solicitante</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="hidden sm:table-cell">Data</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {removalRequests.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-slate-500 py-8">
+                          Nenhuma solicitação de remoção
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      removalRequests.map((request) => {
+                        const item = getItemById(request.itemId);
+                        const unit = getUnitById(request.unitId);
+                        const requester = getUserById(request.requestedByUserId);
+
+                        return (
+                          <TableRow key={request.id}>
+                            <TableCell className="font-medium">
+                              {item?.name || 'Item não encontrado'}
+                            </TableCell>
+                            <TableCell className="hidden md:table-cell">
+                              {unit?.name || '-'}
+                            </TableCell>
+                            <TableCell className="hidden lg:table-cell">
+                              {requester?.name || '-'}
+                            </TableCell>
+                            <TableCell>{getStatusBadge(request.status)}</TableCell>
+                            <TableCell className="hidden sm:table-cell text-xs text-slate-600">
+                              {formatDate(request.createdAt)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Estatísticas Adicionais */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-[#3F76FF]" />
+              Equipe de Design
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {users
+                .filter(u => u.role === 'designer')
+                .map(designer => (
+                  <div key={designer.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-full bg-gradient-to-r from-[#3F76FF] to-[#00C5E9] flex items-center justify-center text-white font-medium">
+                        {designer.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">{designer.name}</p>
+                        <p className="text-xs text-slate-600">{designer.email}</p>
+                      </div>
+                    </div>
+                    <Badge variant="secondary">{designer.role}</Badge>
                   </div>
                 ))}
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        {/* Tabelas de Dados */}
-        <div className="grid gap-6 mt-6 lg:grid-cols-2">
-          {/* Itens Mais Movimentados */}
-          <Card className="p-6 bg-card border-border">
-            <h3 className="text-lg mb-4 text-neutral-900 dark:text-neutral-100">Itens Mais Movimentados</h3>
-            <div className="space-y-3">
-              {topMovedItems.length > 0 ? (
-                topMovedItems.map((item, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#3F76FF]/10 text-sm text-[#3F76FF]">
-                        {index + 1}
-                      </div>
-                      <div>
-                        <p className="text-sm text-neutral-900 dark:text-neutral-100">{item.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          <span className="text-green-600">+{item.entries}</span> / 
-                          <span className="text-red-600"> -{item.exits}</span>
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-neutral-900 dark:text-neutral-100">{item.total}</p>
-                      <p className="text-xs text-muted-foreground">movimentos</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center text-muted-foreground py-8">Nenhum dado disponível</p>
-              )}
-            </div>
-          </Card>
-
-          {/* Móveis Mais Transferidos */}
-          <Card className="p-6 bg-card border-border">
-            <h3 className="text-lg mb-4 text-neutral-900 dark:text-neutral-100">Móveis Mais Transferidos</h3>
-            <div className="space-y-3">
-              {topFurnitureTransfers.length > 0 ? (
-                topFurnitureTransfers.map((furniture, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#00C5E9]/10 text-sm text-[#00C5E9]">
-                        {index + 1}
-                      </div>
-                      <div>
-                        <p className="text-sm text-neutral-900 dark:text-neutral-100">{furniture.name}</p>
-                        <p className="text-xs text-muted-foreground">Transferências entre unidades</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-neutral-900 dark:text-neutral-100">{furniture.count}</p>
-                      <p className="text-xs text-muted-foreground">transferências</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center text-muted-foreground py-8">Nenhum dado disponível</p>
-              )}
-            </div>
-          </Card>
-        </div>
-
-        {/* Designers e Estoque Crítico */}
-        <div className="grid gap-6 mt-6 lg:grid-cols-2">
-          {/* Top Designers */}
-          <Card className="p-6 bg-card border-border">
-            <h3 className="text-lg mb-4 text-neutral-900 dark:text-neutral-100">Designers - Aprovações</h3>
-            <div className="space-y-3">
-              {topDesigners.length > 0 ? (
-                topDesigners.map((designer, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-500/10 text-sm text-green-500">
-                        {index + 1}
-                      </div>
-                      <div>
-                        <p className="text-sm text-neutral-900 dark:text-neutral-100">{designer.name}</p>
-                        <p className="text-xs text-muted-foreground">{designer.jobTitle}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-neutral-900 dark:text-neutral-100">{designer.approvals}</p>
-                      <p className="text-xs text-muted-foreground">aprovações</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center text-muted-foreground py-8">Nenhum designer cadastrado</p>
-              )}
-            </div>
-          </Card>
-
-          {/* Estoque Crítico */}
-          <Card className="p-6 bg-card border-border">
-            <h3 className="text-lg mb-4 text-neutral-900 dark:text-neutral-100">Estoque Crítico - Almoxarifado</h3>
-            <div className="space-y-3">
-              {criticalWarehouseStock.length > 0 ? (
-                criticalWarehouseStock.map((stock, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-red-500/5 border border-red-500/20">
-                    <div>
-                      <p className="text-sm text-neutral-900 dark:text-neutral-100">{stock.itemName}</p>
-                      <p className="text-xs text-muted-foreground">Almoxarifado Central</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-red-500">{stock.quantity}/{stock.minimum}</p>
-                      <p className="text-xs text-muted-foreground">Faltam {stock.deficit}</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8">
-                  <div className="rounded-full bg-green-500/10 p-3 w-12 h-12 mx-auto mb-2">
-                    <TrendingUp className="h-6 w-6 text-green-500" />
-                  </div>
-                  <p className="text-sm text-muted-foreground">Estoque adequado</p>
-                </div>
-              )}
-            </div>
-          </Card>
-        </div>
-
-        {/* Equipe */}
-        <div className="grid gap-6 mt-6 lg:grid-cols-3">
-          <Card className="p-6 bg-card border-border">
-            <div className="flex items-center gap-4">
-              <div className="rounded-full bg-[#3F76FF]/10 p-4">
-                <Users className="h-6 w-6 text-[#3F76FF]" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Equipe de Designers</p>
-                <p className="text-2xl mt-1 text-neutral-900 dark:text-neutral-100">{metrics.designers}</p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6 bg-card border-border">
-            <div className="flex items-center gap-4">
-              <div className="rounded-full bg-[#00C5E9]/10 p-4">
-                <Truck className="h-6 w-6 text-[#00C5E9]" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Equipe de Almoxarifado</p>
-                <p className="text-2xl mt-1 text-neutral-900 dark:text-neutral-100">{metrics.warehouseStaff}</p>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6 bg-card border-border">
-            <div className="flex items-center gap-4">
-              <div className="rounded-full bg-green-500/10 p-4">
-                <Package2 className="h-6 w-6 text-green-500" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Taxa de Atendimento</p>
-                <p className="text-2xl mt-1 text-neutral-900 dark:text-neutral-100">
-                  {((metrics.completedRequests / (metrics.completedRequests + metrics.pendingRequests || 1)) * 100).toFixed(0)}%
+              {users.filter(u => u.role === 'designer').length === 0 && (
+                <p className="text-sm text-slate-500 text-center py-4">
+                  Nenhum designer cadastrado
                 </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Layers className="h-5 w-5 text-[#00C5E9]" />
+              Resumo do Sistema
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Armchair className="h-4 w-4 text-slate-600" />
+                  <span className="text-sm">Móveis Cadastrados</span>
+                </div>
+                <span className="font-bold text-lg">{stats.totalFurniture}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Package className="h-4 w-4 text-slate-600" />
+                  <span className="text-sm">Móveis no Almoxarifado</span>
+                </div>
+                <span className="font-bold text-lg">{stats.furnitureInWarehouse}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-slate-600" />
+                  <span className="text-sm">Solicitações Totais</span>
+                </div>
+                <span className="font-bold text-lg">{furnitureRequestsToDesigner.length}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ArrowRightLeft className="h-4 w-4 text-slate-600" />
+                  <span className="text-sm">Transferências Totais</span>
+                </div>
+                <span className="font-bold text-lg">{furnitureTransfers.length}</span>
               </div>
             </div>
-          </Card>
-        </div>
+          </CardContent>
+        </Card>
       </div>
+
+      {/* Análise de Dados */}
+      <AdminAnalytics />
     </div>
   );
 }

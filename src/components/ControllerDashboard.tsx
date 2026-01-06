@@ -44,9 +44,18 @@ export function ControllerDashboard() {
     deliveryConfirmations,
     getConfirmationsForBatch,
   } = useApp();
-  const [removalDialogOpen, setRemovalDialogOpen] = useState(false);
-  const [requestFurnitureDialogOpen, setRequestFurnitureDialogOpen] = useState(false);
+  
+  // Debug: verificar floors da unidade atual
+  React.useEffect(() => {
+    if (currentUnit) {
+      console.log('🏢 ControllerDashboard - currentUnit:', currentUnit);
+      console.log('📊 ControllerDashboard - floors:', currentUnit.floors);
+      console.log('📊 ControllerDashboard - floors type:', typeof currentUnit.floors, Array.isArray(currentUnit.floors));
+    }
+  }, [currentUnit]);
   const [addFurnitureDialogOpen, setAddFurnitureDialogOpen] = useState(false);
+  const [requestFurnitureDialogOpen, setRequestFurnitureDialogOpen] = useState(false);
+  const [removalDialogOpen, setRemovalDialogOpen] = useState(false);
   const [itemsToShow, setItemsToShow] = useState('10');
   const [selectedFloor, setSelectedFloor] = useState<string>('all');
   const [selectedBatchForReceipt, setSelectedBatchForReceipt] = useState<string | null>(null);
@@ -305,25 +314,7 @@ export function ControllerDashboard() {
                             {floor}
                           </SelectItem>
                         ))
-                      ) : (
-                        <>
-                          <SelectItem value="Subsolo">Subsolo</SelectItem>
-                          <SelectItem value="Térreo">Térreo</SelectItem>
-                          <SelectItem value="1º Andar">1º Andar</SelectItem>
-                          <SelectItem value="2º Andar">2º Andar</SelectItem>
-                          <SelectItem value="3º Andar">3º Andar</SelectItem>
-                          <SelectItem value="4º Andar">4º Andar</SelectItem>
-                          <SelectItem value="5º Andar">5º Andar</SelectItem>
-                          <SelectItem value="6º Andar">6º Andar</SelectItem>
-                          <SelectItem value="7º Andar">7º Andar</SelectItem>
-                          <SelectItem value="8º Andar">8º Andar</SelectItem>
-                          <SelectItem value="9º Andar">9º Andar</SelectItem>
-                          <SelectItem value="10º Andar">10º Andar</SelectItem>
-                          <SelectItem value="11º Andar">11º Andar</SelectItem>
-                          <SelectItem value="12º Andar">12º Andar</SelectItem>
-                          <SelectItem value="Cobertura">Cobertura</SelectItem>
-                        </>
-                      )}
+                      ) : null}
                     </SelectContent>
                   </Select>
                   <div className="flex gap-2 flex-wrap">
@@ -504,6 +495,11 @@ export function ControllerDashboard() {
                     batch => batch.targetUnitId === currentUnit.id && batch.status === 'delivery_confirmed'
                   );
                   
+                  // Móveis individuais pendentes de confirmação
+                  const pendingFurnitureDeliveries = furnitureRequestsToDesigner.filter(
+                    req => req.requestingUnitId === currentUnit.id && req.status === 'pending_confirmation'
+                  );
+                  
                   // Todos os lotes pendentes de confirmação
                   const allPendingConfirmation = [...pendingDriverConfirmation, ...pendingControllerConfirmation];
                   
@@ -511,8 +507,13 @@ export function ControllerDashboard() {
                   const completedBatches = deliveryBatches.filter(
                     batch => batch.targetUnitId === currentUnit.id && batch.status === 'completed'
                   );
+                  
+                  // Móveis individuais completados
+                  const completedFurniture = furnitureRequestsToDesigner.filter(
+                    req => req.requestingUnitId === currentUnit.id && req.status === 'completed'
+                  );
 
-                  if (allPendingConfirmation.length === 0 && completedBatches.length === 0) {
+                  if (allPendingConfirmation.length === 0 && pendingFurnitureDeliveries.length === 0 && completedBatches.length === 0 && completedFurniture.length === 0) {
                     return (
                       <div className="text-center py-12 text-slate-500">
                         <Package className="h-12 w-12 mx-auto mb-3 text-slate-300" />
@@ -525,15 +526,15 @@ export function ControllerDashboard() {
                     <Tabs defaultValue="pending" className="w-full">
                       <TabsList className="grid w-full grid-cols-2">
                         <TabsTrigger value="pending">
-                          Aguardando Confirmação ({allPendingConfirmation.length})
+                          Aguardando Confirmação ({allPendingConfirmation.length + pendingFurnitureDeliveries.length})
                         </TabsTrigger>
                         <TabsTrigger value="completed">
-                          Confirmados ({completedBatches.length})
+                          Confirmados ({completedBatches.length + completedFurniture.length})
                         </TabsTrigger>
                       </TabsList>
 
                       <TabsContent value="pending" className="space-y-3 mt-4">
-                        {allPendingConfirmation.length === 0 ? (
+                        {allPendingConfirmation.length === 0 && pendingFurnitureDeliveries.length === 0 ? (
                           <div className="text-center py-8 text-slate-500">
                             <CheckCircle className="h-10 w-10 mx-auto mb-2 text-slate-300" />
                             <p className="text-sm">Todas as entregas confirmadas!</p>
@@ -620,12 +621,73 @@ export function ControllerDashboard() {
                                 </Card>
                               );
                             })}
+                            
+                            {/* Móveis individuais pendentes de confirmação */}
+                            {pendingFurnitureDeliveries.map(furnitureReq => {
+                              const item = getItemById(furnitureReq.itemId);
+                              const driver = furnitureReq.deliveredByUserId ? getUserById(furnitureReq.deliveredByUserId) : null;
+                              
+                              return (
+                                <Card key={furnitureReq.id} className="border-2 border-yellow-500 bg-yellow-50/30 dark:bg-yellow-950/20">
+                                  <CardHeader className="pb-3">
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <CardTitle className="text-base flex items-center gap-2">
+                                          <Armchair className="h-4 w-4" />
+                                          {item?.name}
+                                        </CardTitle>
+                                        <CardDescription className="text-xs">
+                                          Motorista: {driver?.name || 'Não informado'}
+                                        </CardDescription>
+                                      </div>
+                                      <Badge className="bg-yellow-600">
+                                        Entrega Individual
+                                      </Badge>
+                                    </div>
+                                  </CardHeader>
+                                  <CardContent className="space-y-3">
+                                    <Alert className="bg-yellow-100 border-yellow-400 dark:bg-yellow-900/30 dark:border-yellow-600">
+                                      <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                                      <AlertDescription className="text-xs text-yellow-800 dark:text-yellow-200">
+                                        O motorista marcou como "Confirmar Depois". Confirme o recebimento com seu código único.
+                                      </AlertDescription>
+                                    </Alert>
+                                    
+                                    {/* Detalhes do móvel */}
+                                    <div className="space-y-2">
+                                      <p className="text-xs font-medium text-slate-600 dark:text-slate-400">Detalhes:</p>
+                                      <div className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800 rounded text-xs">
+                                        <Armchair className="h-3 w-3 text-slate-400" />
+                                        <div className="flex-1">
+                                          <p className="font-medium">{item?.name}</p>
+                                          <p className="text-slate-600 dark:text-slate-400">
+                                            Qtd: {furnitureReq.quantity} • Local: {furnitureReq.location}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    
+                                    <Button
+                                      size="sm"
+                                      className="w-full bg-yellow-600 hover:bg-yellow-700"
+                                      onClick={() => {
+                                        // TODO: Implementar confirmação de móvel individual
+                                        toast.info('Funcionalidade de confirmação de móvel individual será implementada');
+                                      }}
+                                    >
+                                      <CheckCircle className="h-4 w-4 mr-2" />
+                                      Confirmar Recebimento com Código
+                                    </Button>
+                                  </CardContent>
+                                </Card>
+                              );
+                            })}
                           </div>
                         )}
                       </TabsContent>
 
                       <TabsContent value="completed" className="space-y-3 mt-4">
-                        {completedBatches.length === 0 ? (
+                        {completedBatches.length === 0 && completedFurniture.length === 0 ? (
                           <div className="text-center py-8 text-slate-500">
                             <Package className="h-10 w-10 mx-auto mb-2 text-slate-300" />
                             <p className="text-sm">Nenhum lote confirmado ainda</p>
@@ -902,7 +964,7 @@ export function ControllerDashboard() {
                   setScannedBatchId(batch.id);
                   setShowQRScanner(false);
                 } else {
-                  toast.error('Lote não encontrado. Verifique o código.');
+                  toast.error('Lote não encontrado. Verifique o cdigo.');
                 }
               }}
               onClose={() => setShowQRScanner(false)}

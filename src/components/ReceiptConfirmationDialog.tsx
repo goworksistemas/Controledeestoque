@@ -36,9 +36,22 @@ export function ReceiptConfirmationDialog({ batch, open, onClose }: ReceiptConfi
   const [notes, setNotes] = useState('');
   const [isCapturing, setIsCapturing] = useState(false);
   const [qrVerified, setQrVerified] = useState(false);
+  const [currentDate, setCurrentDate] = useState(new Date().toDateString());
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  // Força re-render quando a data muda (após meia-noite)
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      const newDate = new Date().toDateString();
+      if (newDate !== currentDate) {
+        setCurrentDate(newDate);
+      }
+    }, 180 * 60 * 1000); // Verifica a cada 3 horas
+
+    return () => clearInterval(interval);
+  }, [currentDate]);
+  
   const targetUnit = getUnitById(batch.targetUnitId);
   const driver = getUserById(batch.driverUserId);
   

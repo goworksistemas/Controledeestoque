@@ -3,16 +3,87 @@ import { projectId, publicAnonKey } from './supabase/info';
 const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-46b247d8`;
 
 // Helper to get auth token
+// NOTA: Por enquanto, usar sempre publicAnonKey pois o backend não valida JWT customizado
 const getAuthToken = () => {
-  return localStorage.getItem('gowork_auth_token') || publicAnonKey;
+  // Para as rotas de autenticação específicas, usar o token armazenado
+  // Para outras rotas, usar o publicAnonKey
+  return publicAnonKey;
 };
+
+// ✅ Helper to convert camelCase to snake_case
+function toSnakeCase(obj: any): any {
+  if (obj === null || obj === undefined || typeof obj !== 'object') {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(toSnakeCase);
+  }
+
+  if (obj instanceof Date) {
+    return obj.toISOString(); // ✅ Convert Date to ISO string
+  }
+
+  const snakeCased: any = {};
+  for (const key in obj) {
+    if (obj.hasOwnProperty(key)) {
+      // Convert camelCase to snake_case
+      const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+      const value = obj[key];
+      
+      // Recursively convert nested objects, but convert Dates to ISO strings
+      if (value instanceof Date) {
+        snakeCased[snakeKey] = value.toISOString(); // ✅ Convert Date to ISO string
+      } else if (value !== null && value !== undefined && typeof value === 'object') {
+        snakeCased[snakeKey] = toSnakeCase(value);
+      } else {
+        snakeCased[snakeKey] = value;
+      }
+    }
+  }
+  return snakeCased;
+}
+
+// ✅ Helper to convert snake_case to camelCase
+function toCamelCase(obj: any): any {
+  if (obj === null || obj === undefined || typeof obj !== 'object') {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(toCamelCase);
+  }
+
+  const camelCased: any = {};
+  for (const key in obj) {
+    if (obj.hasOwnProperty(key)) {
+      // Convert snake_case to camelCase
+      const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+      camelCased[camelKey] = toCamelCase(obj[key]);
+    }
+  }
+  return camelCased;
+}
 
 // Helper to make API requests
 async function apiRequest(endpoint: string, options: RequestInit = {}) {
   const token = getAuthToken();
   
+  // ✅ Convert body to snake_case before sending
+  let body = options.body;
+  if (body && typeof body === 'string') {
+    try {
+      const parsed = JSON.parse(body);
+      const snakeCased = toSnakeCase(parsed);
+      body = JSON.stringify(snakeCased);
+    } catch (e) {
+      // If not JSON, keep as is
+    }
+  }
+  
   const response = await fetch(`${API_URL}${endpoint}`, {
     ...options,
+    body,
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
@@ -34,7 +105,9 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
     throw error;
   }
 
-  return response.json();
+  // ✅ Convert response back to camelCase
+  const data = await response.json();
+  return toCamelCase(data);
 }
 
 // Exportar api como objeto para manter compatibilidade
@@ -63,6 +136,22 @@ export const api = {
     create: (category: any) => apiRequest('/categories', {
       method: 'POST',
       body: JSON.stringify(category),
+    }),
+  },
+
+  // ========== FLOORS ==========
+  floors: {
+    getAll: () => apiRequest('/floors'),
+    create: (floor: any) => apiRequest('/floors', {
+      method: 'POST',
+      body: JSON.stringify(floor),
+    }),
+    update: (id: string, updates: any) => apiRequest(`/floors/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    }),
+    delete: (id: string) => apiRequest(`/floors/${id}`, {
+      method: 'DELETE',
     }),
   },
 

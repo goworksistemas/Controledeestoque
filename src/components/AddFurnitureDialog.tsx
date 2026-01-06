@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Camera, X, Armchair, MapPin, Loader2, Building, Package } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { useApp } from '../contexts/AppContext';
+import { Search } from 'lucide-react';
 
 interface AddFurnitureDialogProps {
   open: boolean;
@@ -15,10 +16,13 @@ interface AddFurnitureDialogProps {
 }
 
 export function AddFurnitureDialog({ open, onOpenChange }: AddFurnitureDialogProps) {
-  const { currentUnit, currentUser, addItem, addStock, units, categories, getWarehouseUnitId } = useApp();
+  const { currentUnit, currentUser, addItemWithStock, units, categories, getWarehouseUnitId, items } = useApp();
   const [isLoading, setIsLoading] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
+  const [selectedExistingItem, setSelectedExistingItem] = useState<string>('');
+  const [useExistingItem, setUseExistingItem] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   
   const warehouseId = getWarehouseUnitId();
   
@@ -41,6 +45,36 @@ export function AddFurnitureDialog({ open, onOpenChange }: AddFurnitureDialogPro
     quantity: 1,
   });
 
+  // Filtrar apenas itens de móveis ativos
+  const furnitureItems = items.filter(item => item.isFurniture && item.active);
+
+  // Filtrar itens com base na pesquisa
+  const filteredFurnitureItems = furnitureItems.filter(item => {
+    if (!searchTerm.trim()) return true;
+    const search = searchTerm.toLowerCase();
+    return (
+      item.name.toLowerCase().includes(search) ||
+      item.description?.toLowerCase().includes(search)
+    );
+  });
+
+  // Auto-preencher quando seleciona item existente
+  useEffect(() => {
+    if (selectedExistingItem && useExistingItem) {
+      const selectedItem = items.find(item => item.id === selectedExistingItem);
+      if (selectedItem) {
+        setFormData(prev => ({
+          ...prev,
+          name: selectedItem.name,
+          description: selectedItem.description || '',
+        }));
+        if (selectedItem.imageUrl) {
+          setPhoto(selectedItem.imageUrl);
+        }
+      }
+    }
+  }, [selectedExistingItem, useExistingItem, items]);
+
   // Cleanup camera when dialog closes
   useEffect(() => {
     if (!open) {
@@ -50,6 +84,8 @@ export function AddFurnitureDialog({ open, onOpenChange }: AddFurnitureDialogPro
       }
       setIsCapturing(false);
       setPhoto(null);
+      setSelectedExistingItem('');
+      setUseExistingItem(false);
       setFormData({
         name: '',
         floor: '',
@@ -169,9 +205,6 @@ export function AddFurnitureDialog({ open, onOpenChange }: AddFurnitureDialogPro
       // Buscar uma categoria válida - usar a primeira disponível ou criar uma genérica
       let validCategoryId = categories && categories.length > 0 ? categories[0].id : 'default-category';
       
-      // Create furniture item
-      const itemId = `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      
       // Se for almoxarifado, usar localização padrão "Estoque Central"
       // Se não, usar andar + sala
       const locationString = isWarehouse 
@@ -179,7 +212,6 @@ export function AddFurnitureDialog({ open, onOpenChange }: AddFurnitureDialogPro
         : `${formData.floor}${formData.room ? ` - ${formData.room}` : ''}`;
       
       const newItem = {
-        id: itemId,
         name: formData.name,
         categoryId: validCategoryId, // Usar categoria válida
         description: formData.description || 'Móvel cadastrado',
@@ -194,21 +226,15 @@ export function AddFurnitureDialog({ open, onOpenChange }: AddFurnitureDialogPro
         updatedAt: new Date(),
       };
 
-      // Create stock for this unit
-      const stockId = `stock-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const newStock = {
-        id: stockId,
-        itemId: itemId,
-        unitId: targetUnit.id,
-        quantity: formData.quantity,
-        minimumQuantity: 0,
-        location: locationString,
-      };
-
-      // Add to context
-      addItem(newItem);
-      addStock(newStock);
-
+      // ⚠️ IMPORTANTE: addItemWithStock() cria o item E o stock simultaneamente
+      // Retorna o itemId gerado pelo backend
+      const itemId = await addItemWithStock(
+        newItem, 
+        targetUnit.id, 
+        formData.quantity, 
+        locationString
+      );
+      
       toast.success(`Móvel "${formData.name}" cadastrado no ${isWarehouse ? 'Almoxarifado Central' : targetUnit.name}!`);
       onOpenChange(false);
     } catch (error: any) {
@@ -258,6 +284,105 @@ export function AddFurnitureDialog({ open, onOpenChange }: AddFurnitureDialogPro
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Seletor de Item Existente */}
+          {furnitureItems.length > 0 && (
+            <div className="space-y-3 p-4 bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-200 rounded-lg">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2 text-blue-900">
+                  <Package className="w-4 h-4" />
+                  Usar Item Já Cadastrado
+                </Label>
+                <Button
+                  type="button"
+                  variant={useExistingItem ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setUseExistingItem(!useExistingItem);
+                    if (!useExistingItem) {
+                      setSelectedExistingItem('');
+                      setFormData(prev => ({
+                        ...prev,
+                        name: '',
+                        description: '',
+                      }));
+                      setPhoto(null);
+                    }
+                  }}
+                  className="h-8"
+                >
+                  {useExistingItem ? 'Criar Novo' : 'Usar Existente'}
+                </Button>
+              </div>
+              
+              {useExistingItem && (
+                <div className="space-y-2">
+                  {/* Campo de Busca */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Pesquisar por nome ou descrição..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-9 bg-white"
+                      disabled={isLoading}
+                    />
+                  </div>
+                  
+                  <Select
+                    value={selectedExistingItem}
+                    onValueChange={setSelectedExistingItem}
+                    disabled={isLoading}
+                  >
+                    <SelectTrigger className="bg-white">
+                      <SelectValue placeholder={filteredFurnitureItems.length === 0 ? "Nenhum móvel encontrado" : "Selecione um móvel cadastrado"} />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px]">
+                      {filteredFurnitureItems.length === 0 ? (
+                        <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                          <Search className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                          <p>Nenhum móvel encontrado</p>
+                          {searchTerm && (
+                            <p className="text-xs mt-1">Tente buscar por outro termo</p>
+                          )}
+                        </div>
+                      ) : (
+                        filteredFurnitureItems.map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            <div className="flex items-center gap-2">
+                              <Armchair className="w-4 h-4 text-muted-foreground" />
+                              <span>{item.name}</span>
+                              {item.description && (
+                                <span className="text-xs text-muted-foreground">- {item.description}</span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  
+                  {searchTerm && filteredFurnitureItems.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {filteredFurnitureItems.length} móvel(is) encontrado(s)
+                    </p>
+                  )}
+                  
+                  {selectedExistingItem && (
+                    <p className="text-xs text-blue-700">
+                      ✓ Nome e descrição serão preenchidos automaticamente. Você pode editá-los se necessário.
+                    </p>
+                  )}
+                </div>
+              )}
+              
+              {!useExistingItem && (
+                <p className="text-xs text-blue-700">
+                  💡 Evite duplicatas: Verifique se o móvel já está cadastrado antes de criar um novo.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Nome do Móvel */}
           <div className="space-y-2">
             <Label htmlFor="furniture-name" className="flex items-center gap-2">
@@ -269,9 +394,14 @@ export function AddFurnitureDialog({ open, onOpenChange }: AddFurnitureDialogPro
               placeholder="Ex: Mesa de Reunião, Cadeira Executiva..."
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              disabled={isLoading}
-              autoFocus
+              disabled={isLoading || (useExistingItem && !!selectedExistingItem)}
+              autoFocus={!useExistingItem}
             />
+            {useExistingItem && selectedExistingItem && (
+              <p className="text-xs text-muted-foreground">
+                Nome herdado do item selecionado. Desative "Usar Existente" para editar.
+              </p>
+            )}
           </div>
 
           {/* Andar - Destaque especial - OCULTAR se for Almoxarifado */}
@@ -297,42 +427,9 @@ export function AddFurnitureDialog({ open, onOpenChange }: AddFurnitureDialogPro
                       </SelectItem>
                     ))
                   ) : (
-                    <>
-                      <SelectItem value="3º Subsolo">3º Subsolo</SelectItem>
-                      <SelectItem value="2º Subsolo">2º Subsolo</SelectItem>
-                      <SelectItem value="1º Subsolo">1º Subsolo</SelectItem>
-                      <SelectItem value="Térreo">Térreo</SelectItem>
-                      <SelectItem value="1º Andar">1º Andar</SelectItem>
-                      <SelectItem value="2º Andar">2º Andar</SelectItem>
-                      <SelectItem value="3º Andar">3º Andar</SelectItem>
-                      <SelectItem value="4º Andar">4º Andar</SelectItem>
-                      <SelectItem value="5º Andar">5º Andar</SelectItem>
-                      <SelectItem value="6º Andar">6º Andar</SelectItem>
-                      <SelectItem value="7º Andar">7º Andar</SelectItem>
-                      <SelectItem value="8º Andar">8º Andar</SelectItem>
-                      <SelectItem value="9º Andar">9º Andar</SelectItem>
-                      <SelectItem value="10º Andar">10º Andar</SelectItem>
-                      <SelectItem value="11º Andar">11º Andar</SelectItem>
-                      <SelectItem value="12º Andar">12º Andar</SelectItem>
-                      <SelectItem value="13º Andar">13º Andar</SelectItem>
-                      <SelectItem value="14º Andar">14º Andar</SelectItem>
-                      <SelectItem value="15º Andar">15º Andar</SelectItem>
-                      <SelectItem value="16º Andar">16º Andar</SelectItem>
-                      <SelectItem value="17º Andar">17º Andar</SelectItem>
-                      <SelectItem value="18º Andar">18º Andar</SelectItem>
-                      <SelectItem value="19º Andar">19º Andar</SelectItem>
-                      <SelectItem value="20º Andar">20º Andar</SelectItem>
-                      <SelectItem value="21º Andar">21º Andar</SelectItem>
-                      <SelectItem value="22º Andar">22º Andar</SelectItem>
-                      <SelectItem value="23º Andar">23º Andar</SelectItem>
-                      <SelectItem value="24º Andar">24º Andar</SelectItem>
-                      <SelectItem value="25º Andar">25º Andar</SelectItem>
-                      <SelectItem value="26º Andar">26º Andar</SelectItem>
-                      <SelectItem value="27º Andar">27º Andar</SelectItem>
-                      <SelectItem value="28º Andar">28º Andar</SelectItem>
-                      <SelectItem value="29º Andar">29º Andar</SelectItem>
-                      <SelectItem value="Cobertura">Cobertura</SelectItem>
-                    </>
+                    <SelectItem value="no-floors-configured" disabled>
+                      Nenhum andar configurado
+                    </SelectItem>
                   )}
                 </SelectContent>
               </Select>
