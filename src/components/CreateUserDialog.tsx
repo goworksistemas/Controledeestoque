@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from './ui/select';
 import { Checkbox } from './ui/checkbox';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { UserPlus, Loader2 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { authService } from '../utils/auth';

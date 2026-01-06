@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { User, UserRole, Unit } from '../types';
 import { PlusCircle, Users, Building2, Package, Shield, Trash2, Edit, Upload, X, Image as ImageIcon, List, KeyRound, ShieldAlert, TestTube2 } from 'lucide-react';
 import { Checkbox } from './ui/checkbox';

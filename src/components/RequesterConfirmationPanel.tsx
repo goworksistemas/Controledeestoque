@@ -15,7 +15,7 @@ import {
   AlertCircle,
   Clock
 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useApp } from '../contexts/AppContext';
 import { formatDailyCode, unformatDailyCode } from '../utils/dailyCode';
 

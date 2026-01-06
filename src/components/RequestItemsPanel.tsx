@@ -44,7 +44,7 @@ import {
   TableRow,
 } from './ui/table';
 import { Package, Plus, Clock, CheckCircle, XCircle, Loader } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 export function RequestItemsPanel() {
   const {

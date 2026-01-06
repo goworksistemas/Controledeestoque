@@ -31,7 +31,7 @@ import {
 } from './ui/table';
 import { Package, Edit, Search, Check, X } from 'lucide-react';
 import { Item } from '../types';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 export function ProductsListPanel() {
   const { items, categories, getCategoryById } = useApp();

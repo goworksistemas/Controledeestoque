@@ -26,7 +26,7 @@ import {
 import { RequesterConfirmationPanel } from './RequesterConfirmationPanel';
 import { QRCodeScanner } from './QRCodeScanner';
 import { ReceiptConfirmationWithCode } from './ReceiptConfirmationWithCode';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 export function RequesterDashboard() {

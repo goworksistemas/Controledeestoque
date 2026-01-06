@@ -7,7 +7,7 @@ import { Label } from './ui/label';
 import { LogIn, Mail, Lock, Eye, EyeOff, UserPlus } from 'lucide-react';
 import { GoworkLogo } from './GoworkLogo';
 import { authService } from '../utils/auth';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { ForgotPasswordDialog } from './ForgotPasswordDialog';
 import { ChangePasswordDialog } from './ChangePasswordDialog';
 import { projectId, publicAnonKey } from '../utils/supabase/info';

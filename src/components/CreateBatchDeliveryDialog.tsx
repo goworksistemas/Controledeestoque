@@ -6,7 +6,7 @@ import { Checkbox } from './ui/checkbox';
 import { Label } from './ui/label';
 import { Alert, AlertDescription } from './ui/alert';
 import { Package, Armchair, Truck, AlertCircle } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useApp } from '../contexts/AppContext';
 import type { Request, FurnitureRequestToDesigner } from '../types';
 

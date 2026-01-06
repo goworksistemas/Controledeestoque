@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Armchair, MapPin, ArrowRightLeft, Building2, CheckCircle, Clock, XCircle, Plus, Trash2, ChevronDown, ChevronUp, History } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { AddFurnitureDialog } from './AddFurnitureDialog';
 import { FurnitureRequestsPanel } from './FurnitureRequestsPanel';
 import { FurnitureRemovalDialog } from './FurnitureRemovalDialog';

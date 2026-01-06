@@ -16,7 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './ui/command';
 import { AlertCircle, Sofa, Check, ChevronsUpDown, Package } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { cn } from './ui/utils';
 
 interface RequestFurnitureToDesignerDialogProps {

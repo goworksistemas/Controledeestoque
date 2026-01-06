@@ -13,7 +13,7 @@ import { Label } from './ui/label';
 import { Badge } from './ui/badge';
 import { Alert, AlertDescription } from './ui/alert';
 import { Package, Armchair, Users, CheckCircle, AlertCircle } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useApp } from '../contexts/AppContext';
 import type { DeliveryBatch } from '../types';
 

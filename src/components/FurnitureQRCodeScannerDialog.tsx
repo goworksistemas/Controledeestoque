@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
 import { QrCode, Camera, CheckCircle, Armchair, AlertCircle, Loader2 } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useApp } from '../contexts/AppContext';
 import type { FurnitureRequestToDesigner } from '../types';
 import jsQR from 'jsqr';

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Package, Calendar, AlertCircle, CheckCircle, User } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 export function MyLoansPanel() {
   const { currentUser, loans, getItemById, getUnitById, getUserById, updateLoan, addMovement, updateStock, getStockForItem } = useApp();

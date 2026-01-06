@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
 import { Camera, MapPin, CheckCircle, Package, Armchair, AlertCircle, KeyRound } from 'lucide-react';
 import { DeliveryQRCode } from './DeliveryQRCode';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useApp } from '../contexts/AppContext';
 import { unformatDailyCode } from '../utils/dailyCode';
 import type { DeliveryBatch, Request, FurnitureRequestToDesigner } from '../types';

@@ -5,7 +5,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Mail, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { supabase } from '../utils/supabase/client';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface ForgotPasswordDialogProps {
   open: boolean;

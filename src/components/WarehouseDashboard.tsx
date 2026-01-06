@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Package, CheckCircle, XCircle, Clock, AlertCircle, PackageCheck, Truck, Armchair, Scan } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { AddFurnitureDialog } from './AddFurnitureDialog';
 import { SelectItemForStockDialog } from './SelectItemForStockDialog';
 import { WarehouseStockPanel } from './WarehouseStockPanel';

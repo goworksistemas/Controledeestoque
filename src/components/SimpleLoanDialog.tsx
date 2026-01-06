@@ -7,7 +7,7 @@ import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './ui/command';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { Calendar, Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from './ui/utils';
 

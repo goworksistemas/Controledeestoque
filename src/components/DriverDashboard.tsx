@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Truck, CheckCircle, Package, Armchair, MapPin, Building2, Clock, QrCode } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import {
   AlertDialog,
   AlertDialogAction,

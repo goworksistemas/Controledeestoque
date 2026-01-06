@@ -14,7 +14,7 @@ import { RequesterDashboard } from './components/RequesterDashboard';
 import { Toaster } from './components/ui/sonner';
 import { projectId, publicAnonKey } from './utils/supabase/info';
 import { useInactivityLogout } from './hooks/useInactivityLogout';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import type { UserRole } from './types';
 
 export const ThemeContext = React.createContext<{

@@ -22,7 +22,7 @@ import {
 import { Package, AlertTriangle, MapPin, Calendar, FileText, ShoppingCart, Plus, Minus, UserPlus } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { useApp } from '../contexts/AppContext';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { users } from '../lib/mockData';
 
 interface ItemDetailDialogProps {

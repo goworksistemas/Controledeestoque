@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/button';
 import { X, Camera, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface QRCodeScannerProps {
   onScanSuccess: (decodedText: string) => void;

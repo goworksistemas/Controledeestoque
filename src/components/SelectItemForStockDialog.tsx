@@ -15,7 +15,7 @@ import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { AlertCircle, PackagePlus, Search } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface SelectItemForStockDialogProps {
   open: boolean;

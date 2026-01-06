@@ -6,7 +6,7 @@ import { Label } from './ui/label';
 import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
 import { Clock, Armchair, Building2, AlertCircle } from 'lucide-react';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import { useApp } from '../contexts/AppContext';
 import type { FurnitureRequestToDesigner } from '../types';
 
