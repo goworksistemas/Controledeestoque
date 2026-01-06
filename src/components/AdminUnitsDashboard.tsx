@@ -1,498 +1,544 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '../contexts/AppContext';
-import { Card } from './ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { BarChart3, TrendingUp, Package, AlertCircle, Download, ArrowUpRight, ArrowDownRight, Users, Layout } from 'lucide-react';
-
-type TimePeriod = '7days' | '30days' | '90days' | 'all';
+import { 
+  Building2, 
+  Package, 
+  Users, 
+  TrendingUp, 
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  ArrowRightLeft,
+  Eye,
+  BarChart3,
+  Layers
+} from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from './ui/table';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { AdminAnalytics } from './AdminAnalytics';
 
 interface AdminUnitsDashboardProps {
-  onSwitchToController?: () => void;
+  onSwitchToController: () => void;
 }
 
 export function AdminUnitsDashboard({ onSwitchToController }: AdminUnitsDashboardProps) {
-  const { items, unitStocks, requests, units, movements, users, getItemById, getUnitById, getUserById, getWarehouseUnitId } = useApp();
-  const [selectedUnit, setSelectedUnit] = useState<string>('all');
-  const [timePeriod, setTimePeriod] = useState<TimePeriod>('30days');
+  const { 
+    units, 
+    items, 
+    users, 
+    unitStocks, 
+    requests,
+    furnitureTransfers,
+    getItemById,
+    getUnitById,
+    getUserById
+  } = useApp();
 
-  // Filtrar unidades operacionais (excluir almoxarifado)
-  const warehouseId = getWarehouseUnitId();
-  const operationalUnits = units.filter(u => u.id !== warehouseId);
+  // Excluir almoxarifado das estatísticas de unidades
+  const warehouseUnit = units.find(u => u.name === 'Almoxarifado Central');
+  const operationalUnits = units.filter(u => u.id !== warehouseUnit?.id);
 
-  // Calcular data de início baseado no período
-  const getStartDate = (period: TimePeriod): Date => {
-    const now = new Date();
-    switch (period) {
-      case '7days':
-        return new Date(now.setDate(now.getDate() - 7));
-      case '30days':
-        return new Date(now.setDate(now.getDate() - 30));
-      case '90days':
-        return new Date(now.setDate(now.getDate() - 90));
-      default:
-        return new Date(2020, 0, 1); // All time
-    }
+  // Estatísticas Gerais
+  const stats = useMemo(() => {
+    const activeUnits = operationalUnits.filter(u => u.status === 'active').length;
+    const totalUsers = users.length;
+    const totalItems = items.filter(i => i.active).length;
+    
+    const pendingRequests = requests.filter(r => r.status === 'pending').length;
+    const approvedRequests = requests.filter(r => 
+      r.status === 'approved' || 
+      r.status === 'processing' ||
+      r.status === 'awaiting_pickup'
+    ).length;
+    
+    const lowStockItems = unitStocks.filter(s => s.quantity <= s.minimumQuantity).length;
+    
+    const pendingTransfers = furnitureTransfers.filter(t => 
+      t.status === 'pending' || t.status === 'approved'
+    ).length;
+
+    return {
+      activeUnits,
+      totalUsers,
+      totalItems,
+      pendingRequests,
+      approvedRequests,
+      lowStockItems,
+      pendingTransfers
+    };
+  }, [operationalUnits, users, items, requests, unitStocks, furnitureTransfers]);
+
+  // Pedidos Recentes
+  const recentRequests = useMemo(() => {
+    return requests
+      .filter(r => r.status !== 'completed' && r.status !== 'cancelled')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 10);
+  }, [requests]);
+
+  // Itens com Baixo Estoque
+  const lowStockItemsData = useMemo(() => {
+    return unitStocks
+      .filter(s => s.quantity <= s.minimumQuantity)
+      .map(stock => ({
+        ...stock,
+        item: getItemById(stock.itemId),
+        unit: getUnitById(stock.unitId)
+      }))
+      .filter(s => s.item && s.unit)
+      .slice(0, 10);
+  }, [unitStocks, getItemById, getUnitById]);
+
+  // Transferências Recentes
+  const recentTransfers = useMemo(() => {
+    return furnitureTransfers
+      .filter(t => t.status !== 'completed' && t.status !== 'rejected')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 10);
+  }, [furnitureTransfers]);
+
+  // Volume de Pedidos por Item (Top 10)
+  const requestsByItem = useMemo(() => {
+    const itemCounts = new Map<string, { name: string; count: number }>();
+    
+    requests.forEach(request => {
+      const item = getItemById(request.itemId);
+      if (item) {
+        const current = itemCounts.get(item.id) || { name: item.name, count: 0 };
+        itemCounts.set(item.id, {
+          name: item.name,
+          count: current.count + request.quantity
+        });
+      }
+    });
+
+    return Array.from(itemCounts.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+  }, [requests, getItemById]);
+
+  const getStatusBadge = (status: string) => {
+    const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+      pending: { label: 'Pendente', variant: 'outline' },
+      approved: { label: 'Aprovado', variant: 'default' },
+      processing: { label: 'Processando', variant: 'secondary' },
+      awaiting_pickup: { label: 'Aguardando Retirada', variant: 'secondary' },
+      out_for_delivery: { label: 'Em Entrega', variant: 'default' },
+      completed: { label: 'Concluído', variant: 'outline' },
+      rejected: { label: 'Rejeitado', variant: 'destructive' },
+    };
+
+    const config = statusConfig[status] || { label: status, variant: 'outline' as const };
+    return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
-  const startDate = getStartDate(timePeriod);
-
-  // Filtrar requisições (excluir empréstimos entre unidades - mostrar apenas consumo real)
-  const filteredRequests = useMemo(() => {
-    return requests.filter(req => {
-      const matchesUnit = selectedUnit === 'all' || req.requestingUnitId === selectedUnit;
-      const matchesDate = new Date(req.createdAt) >= startDate;
-      return matchesUnit && matchesDate;
+  const formatDate = (date: Date) => {
+    return new Date(date).toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
     });
-  }, [requests, selectedUnit, startDate]);
-
-  // Filtrar movimentações de consumo (saída) por executores e controladores
-  const filteredMovements = useMemo(() => {
-    return movements.filter(mov => {
-      const matchesUnit = selectedUnit === 'all' || mov.unitId === selectedUnit;
-      const matchesDate = new Date(mov.timestamp) >= startDate;
-      const isOperationalUnit = mov.unitId !== warehouseId;
-      const isConsumption = mov.type === 'saida';
-      return matchesUnit && matchesDate && isOperationalUnit && isConsumption;
-    });
-  }, [movements, selectedUnit, startDate]);
-
-  // Calcular métricas principais
-  const metrics = useMemo(() => {
-    const totalRequests = filteredRequests.length;
-    const completedRequests = filteredRequests.filter(r => r.status === 'completed').length;
-    const pendingRequests = filteredRequests.filter(r => r.status === 'pending').length;
-    const totalItemsRequested = filteredRequests.reduce((sum, r) => sum + r.quantity, 0);
-    const totalConsumed = filteredMovements.reduce((sum, m) => sum + m.quantity, 0);
-
-    // Executores e Controladores ativos
-    const executorsControllers = users.filter(u => 
-      (u.role === 'executor' || u.role === 'controller') &&
-      (selectedUnit === 'all' || u.primaryUnitId === selectedUnit)
-    );
-
-    return {
-      totalRequests,
-      completedRequests,
-      pendingRequests,
-      totalItemsRequested,
-      totalConsumed,
-      activeUsers: executorsControllers.length,
-      completionRate: totalRequests > 0 ? ((completedRequests / totalRequests) * 100).toFixed(1) : '0',
-    };
-  }, [filteredRequests, filteredMovements, users, selectedUnit]);
-
-  // Itens mais solicitados
-  const topRequestedItems = useMemo(() => {
-    const itemCounts: Record<string, { name: string; count: number; quantity: number }> = {};
-    
-    filteredRequests.forEach(req => {
-      const item = getItemById(req.itemId);
-      if (item) {
-        if (!itemCounts[item.id]) {
-          itemCounts[item.id] = { name: item.name, count: 0, quantity: 0 };
-        }
-        itemCounts[item.id].count += 1;
-        itemCounts[item.id].quantity += req.quantity;
-      }
-    });
-
-    return Object.values(itemCounts)
-      .sort((a, b) => b.quantity - a.quantity)
-      .slice(0, 5);
-  }, [filteredRequests, getItemById]);
-
-  // Consumo por unidade
-  const consumptionByUnit = useMemo(() => {
-    const unitData: Record<string, { name: string; consumo: number; requisições: number }> = {};
-    
-    filteredMovements.forEach(mov => {
-      const unit = getUnitById(mov.unitId);
-      if (unit && unit.id !== warehouseId) {
-        if (!unitData[unit.id]) {
-          unitData[unit.id] = { name: unit.name, consumo: 0, requisições: 0 };
-        }
-        unitData[unit.id].consumo += mov.quantity;
-      }
-    });
-
-    filteredRequests.forEach(req => {
-      const unit = getUnitById(req.requestingUnitId);
-      if (unit && unit.id !== warehouseId) {
-        if (!unitData[unit.id]) {
-          unitData[unit.id] = { name: unit.name, consumo: 0, requisições: 0 };
-        }
-        unitData[unit.id].requisições += req.quantity;
-      }
-    });
-
-    return Object.values(unitData).sort((a, b) => b.consumo - a.consumo);
-  }, [filteredMovements, filteredRequests, getUnitById]);
-
-  // Dados de tendência (últimos 7 períodos)
-  const trendData = useMemo(() => {
-    const periods: { name: string; consumo: number; requisições: number }[] = [];
-    
-    for (let i = 6; i >= 0; i--) {
-      const periodEnd = new Date();
-      periodEnd.setDate(periodEnd.getDate() - (i * (timePeriod === '7days' ? 1 : timePeriod === '30days' ? 4 : 12)));
-      
-      const periodStart = new Date(periodEnd);
-      periodStart.setDate(periodEnd.getDate() - (timePeriod === '7days' ? 1 : timePeriod === '30days' ? 4 : 12));
-
-      const periodMovements = filteredMovements.filter(m => {
-        const date = new Date(m.timestamp);
-        return date >= periodStart && date <= periodEnd;
-      });
-
-      const periodRequests = filteredRequests.filter(r => {
-        const date = new Date(r.createdAt);
-        return date >= periodStart && date <= periodEnd;
-      });
-
-      const periodName = timePeriod === '7days' 
-        ? periodEnd.toLocaleDateString('pt-BR', { weekday: 'short' })
-        : periodEnd.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
-
-      periods.push({
-        name: periodName,
-        consumo: periodMovements.reduce((sum, m) => sum + m.quantity, 0),
-        requisições: periodRequests.reduce((sum, r) => sum + r.quantity, 0),
-      });
-    }
-
-    return periods;
-  }, [filteredMovements, filteredRequests, timePeriod]);
-
-  // Produtos críticos (estoque baixo)
-  const criticalStock = useMemo(() => {
-    const critical = unitStocks
-      .filter(stock => {
-        if (selectedUnit !== 'all' && stock.unitId !== selectedUnit) return false;
-        if (stock.unitId === warehouseId) return false; // Excluir almoxarifado
-        return stock.quantity < stock.minimumQuantity;
-      })
-      .map(stock => {
-        const item = getItemById(stock.itemId);
-        const unit = getUnitById(stock.unitId);
-        return {
-          itemName: item?.name || 'Desconhecido',
-          unitName: unit?.name || 'Desconhecido',
-          quantity: stock.quantity,
-          minimum: stock.minimumQuantity,
-          deficit: stock.minimumQuantity - stock.quantity,
-        };
-      })
-      .sort((a, b) => b.deficit - a.deficit)
-      .slice(0, 5);
-
-    return critical;
-  }, [unitStocks, selectedUnit, getItemById, getUnitById]);
-
-  // Variação de consumo (comparação com período anterior)
-  const consumptionVariation = useMemo(() => {
-    const currentTotal = filteredMovements.reduce((sum, m) => sum + m.quantity, 0);
-    
-    // Período anterior
-    const previousStart = new Date(startDate);
-    const daysDiff = (new Date().getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
-    previousStart.setDate(previousStart.getDate() - daysDiff);
-    
-    const previousMovements = movements.filter(mov => {
-      const matchesUnit = selectedUnit === 'all' || mov.unitId === selectedUnit;
-      const movDate = new Date(mov.timestamp);
-      const matchesDate = movDate >= previousStart && movDate < startDate;
-      const isOperationalUnit = mov.unitId !== warehouseId;
-      const isConsumption = mov.type === 'saida';
-      return matchesUnit && matchesDate && isOperationalUnit && isConsumption;
-    });
-
-    const previousTotal = previousMovements.reduce((sum, m) => sum + m.quantity, 0);
-    
-    const variation = previousTotal > 0 
-      ? (((currentTotal - previousTotal) / previousTotal) * 100).toFixed(1)
-      : '0';
-
-    return {
-      current: currentTotal,
-      previous: previousTotal,
-      variation: parseFloat(variation),
-      isIncrease: parseFloat(variation) > 0,
-    };
-  }, [filteredMovements, movements, selectedUnit, startDate]);
-
-  // Top executores/controladores por consumo
-  const topUsers = useMemo(() => {
-    const userCounts: Record<string, { name: string; jobTitle: string; consumption: number; movements: number }> = {};
-    
-    filteredMovements.forEach(mov => {
-      const user = getUserById(mov.executorUserId);
-      if (user && (user.role === 'executor' || user.role === 'controller')) {
-        if (!userCounts[user.id]) {
-          userCounts[user.id] = { 
-            name: user.name, 
-            jobTitle: user.jobTitle || user.role,
-            consumption: 0, 
-            movements: 0 
-          };
-        }
-        userCounts[user.id].consumption += mov.quantity;
-        userCounts[user.id].movements += 1;
-      }
-    });
-
-    return Object.values(userCounts)
-      .sort((a, b) => b.consumption - a.consumption)
-      .slice(0, 5);
-  }, [filteredMovements, getUserById]);
+  };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="space-y-6 p-4 md:p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="border-b border-border bg-card">
-        <div className="px-4 py-6 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-neutral-900 dark:text-neutral-100">Admin - Unidades Operacionais</h1>
-              <p className="text-muted-foreground mt-1">
-                Análise de consumo e movimentações por executores e controladores
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 w-full sm:w-auto">
-              <Button variant="outline" className="gap-2">
-                <Download className="h-4 w-4" />
-                Exportar Relatório
-              </Button>
-              {onSwitchToController && (
-                <Button 
-                  variant="default" 
-                  className="gap-2 bg-[#3F76FF] hover:bg-[#3F76FF]/90"
-                  onClick={onSwitchToController}
-                >
-                  <Layout className="h-4 w-4" />
-                  Acessar Modo Controlador
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {/* Filtros */}
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="flex-1 sm:max-w-xs">
-              <Select value={selectedUnit} onValueChange={setSelectedUnit}>
-                <SelectTrigger className="bg-background">
-                  <SelectValue placeholder="Selecione a unidade" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas as Unidades</SelectItem>
-                  {operationalUnits.map(unit => (
-                    <SelectItem key={unit.id} value={unit.id}>
-                      {unit.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex-1 sm:max-w-xs">
-              <Select value={timePeriod} onValueChange={(v) => setTimePeriod(v as TimePeriod)}>
-                <SelectTrigger className="bg-background">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="7days">Últimos 7 dias</SelectItem>
-                  <SelectItem value="30days">Últimos 30 dias</SelectItem>
-                  <SelectItem value="90days">Últimos 90 dias</SelectItem>
-                  <SelectItem value="all">Todo o período</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold text-slate-900">Dashboard Administrativo</h1>
+          <p className="text-sm text-slate-600 mt-1">Visão geral do sistema de controle de estoque</p>
         </div>
+        
+        <Button
+          onClick={onSwitchToController}
+          className="gap-2 bg-gradient-to-r from-[#3F76FF] to-[#00C5E9] hover:opacity-90"
+        >
+          <Eye className="h-4 w-4" />
+          Ver como Controlador
+        </Button>
       </div>
 
-      {/* Métricas Principais */}
-      <div className="px-4 py-6 sm:px-6 lg:px-8">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {/* Total Consumido */}
-          <Card className="p-6 bg-card border-border">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total Consumido</p>
-                <p className="text-3xl mt-2 text-neutral-900 dark:text-neutral-100">{metrics.totalConsumed}</p>
-                <div className="flex items-center gap-1 mt-2">
-                  {consumptionVariation.isIncrease ? (
-                    <ArrowUpRight className="h-4 w-4 text-red-500" />
-                  ) : (
-                    <ArrowDownRight className="h-4 w-4 text-green-500" />
-                  )}
-                  <span className={`text-sm ${consumptionVariation.isIncrease ? 'text-red-500' : 'text-green-500'}`}>
-                    {Math.abs(consumptionVariation.variation)}%
-                  </span>
-                  <span className="text-sm text-muted-foreground">vs. período anterior</span>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Unidades Ativas</CardTitle>
+            <Building2 className="h-4 w-4 text-[#3F76FF]" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.activeUnits}</div>
+            <p className="text-xs text-slate-600 mt-1">
+              {operationalUnits.length} unidades totais
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Pedidos Pendentes</CardTitle>
+            <Clock className="h-4 w-4 text-yellow-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.pendingRequests}</div>
+            <p className="text-xs text-slate-600 mt-1">
+              {stats.approvedRequests} aprovados
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Estoque Baixo</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-red-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.lowStockItems}</div>
+            <p className="text-xs text-slate-600 mt-1">
+              Itens abaixo do mínimo
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Transferências</CardTitle>
+            <ArrowRightLeft className="h-4 w-4 text-[#00C5E9]" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.pendingTransfers}</div>
+            <p className="text-xs text-slate-600 mt-1">
+              Transferências pendentes
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Tabs com Detalhes */}
+      <Tabs defaultValue="requests" className="w-full">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="requests">
+            <Clock className="h-4 w-4 mr-2" />
+            <span className="hidden sm:inline">Pedidos</span>
+            <span className="sm:hidden">Ped.</span>
+          </TabsTrigger>
+          <TabsTrigger value="stock">
+            <Package className="h-4 w-4 mr-2" />
+            <span className="hidden sm:inline">Estoque</span>
+            <span className="sm:hidden">Est.</span>
+          </TabsTrigger>
+          <TabsTrigger value="transfers">
+            <ArrowRightLeft className="h-4 w-4 mr-2" />
+            <span className="hidden sm:inline">Transferências</span>
+            <span className="sm:hidden">Trans.</span>
+          </TabsTrigger>
+          <TabsTrigger value="analytics">
+            <BarChart3 className="h-4 w-4 mr-2" />
+            <span className="hidden sm:inline">Analytics</span>
+            <span className="sm:hidden">Anl.</span>
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="requests" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Pedidos Recentes</CardTitle>
+              <CardDescription>Últimas solicitações de materiais</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead>Qtd</TableHead>
+                      <TableHead className="hidden md:table-cell">Unidade</TableHead>
+                      <TableHead className="hidden lg:table-cell">Solicitante</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="hidden sm:table-cell">Data</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {recentRequests.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center text-slate-500 py-8">
+                          Nenhum pedido pendente
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      recentRequests.map((request) => {
+                        const item = getItemById(request.itemId);
+                        const unit = getUnitById(request.requestingUnitId);
+                        const requester = getUserById(request.requestedByUserId);
+                        
+                        return (
+                          <TableRow key={request.id}>
+                            <TableCell className="font-medium">
+                              {item?.name || 'Item não encontrado'}
+                            </TableCell>
+                            <TableCell>{request.quantity}</TableCell>
+                            <TableCell className="hidden md:table-cell">
+                              {unit?.name || '-'}
+                            </TableCell>
+                            <TableCell className="hidden lg:table-cell">
+                              {requester?.name || '-'}
+                            </TableCell>
+                            <TableCell>{getStatusBadge(request.status)}</TableCell>
+                            <TableCell className="hidden sm:table-cell text-xs text-slate-600">
+                              {formatDate(request.createdAt)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="stock" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Itens com Estoque Baixo</CardTitle>
+              <CardDescription>Itens que atingiram ou estão abaixo do estoque mínimo</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead>Unidade</TableHead>
+                      <TableHead>Atual</TableHead>
+                      <TableHead>Mínimo</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {lowStockItemsData.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-slate-500 py-8">
+                          <CheckCircle className="h-10 w-10 mx-auto mb-2 text-green-500" />
+                          <p>Todos os estoques estão adequados!</p>
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      lowStockItemsData.map((stock) => (
+                        <TableRow key={stock.id}>
+                          <TableCell className="font-medium">
+                            {stock.item?.name}
+                          </TableCell>
+                          <TableCell>{stock.unit?.name}</TableCell>
+                          <TableCell>
+                            <span className={stock.quantity === 0 ? 'text-red-600 font-bold' : 'text-yellow-600'}>
+                              {stock.quantity}
+                            </span>
+                          </TableCell>
+                          <TableCell>{stock.minimumQuantity}</TableCell>
+                          <TableCell>
+                            {stock.quantity === 0 ? (
+                              <Badge variant="destructive">Esgotado</Badge>
+                            ) : (
+                              <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">
+                                Baixo
+                              </Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="transfers" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Transferências em Andamento</CardTitle>
+              <CardDescription>Movimentações de móveis entre unidades</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Móvel</TableHead>
+                      <TableHead className="hidden md:table-cell">Origem</TableHead>
+                      <TableHead className="hidden md:table-cell">Destino</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="hidden sm:table-cell">Data</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {recentTransfers.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center text-slate-500 py-8">
+                          Nenhuma transferência em andamento
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      recentTransfers.map((transfer) => {
+                        const item = getItemById(transfer.itemId);
+                        const fromUnit = getUnitById(transfer.fromUnitId);
+                        const toUnit = getUnitById(transfer.toUnitId);
+                        
+                        return (
+                          <TableRow key={transfer.id}>
+                            <TableCell className="font-medium">
+                              {item?.name || 'Item não encontrado'}
+                            </TableCell>
+                            <TableCell className="hidden md:table-cell">
+                              {fromUnit?.name || '-'}
+                            </TableCell>
+                            <TableCell className="hidden md:table-cell">
+                              {toUnit?.name || '-'}
+                            </TableCell>
+                            <TableCell>{getStatusBadge(transfer.status)}</TableCell>
+                            <TableCell className="hidden sm:table-cell text-xs text-slate-600">
+                              {formatDate(transfer.createdAt)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="analytics" className="mt-6">
+          <AdminAnalytics />
+        </TabsContent>
+      </Tabs>
+
+      {/* Estatísticas Adicionais */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-[#3F76FF]" />
+              Volume de Pedidos por Item
+            </CardTitle>
+            <CardDescription>Top 10 itens mais solicitados</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {requestsByItem.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-slate-500">
+                <Package className="h-12 w-12 mb-3 opacity-30" />
+                <p className="text-sm">Nenhum pedido registrado</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart 
+                  data={requestsByItem} 
+                  layout="vertical"
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis type="number" stroke="#64748b" />
+                  <YAxis 
+                    type="category" 
+                    dataKey="name" 
+                    width={120}
+                    stroke="#64748b"
+                    tick={{ fontSize: 12 }}
+                  />
+                  <Tooltip 
+                    contentStyle={{
+                      backgroundColor: '#fff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                    }}
+                    labelStyle={{ fontWeight: 600, marginBottom: '4px' }}
+                  />
+                  <Bar dataKey="count" radius={[0, 8, 8, 0]}>
+                    {requestsByItem.map((entry, index) => (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={`url(#colorGradient-${index})`}
+                      />
+                    ))}
+                  </Bar>
+                  <defs>
+                    {requestsByItem.map((_, index) => (
+                      <linearGradient 
+                        key={`gradient-${index}`}
+                        id={`colorGradient-${index}`} 
+                        x1="0" 
+                        y1="0" 
+                        x2="1" 
+                        y2="0"
+                      >
+                        <stop offset="0%" stopColor="#3F76FF" />
+                        <stop offset="100%" stopColor="#00C5E9" />
+                      </linearGradient>
+                    ))}
+                  </defs>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Layers className="h-5 w-5 text-[#00C5E9]" />
+              Resumo do Sistema
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Package className="h-4 w-4 text-slate-600" />
+                  <span className="text-sm">Total de Itens</span>
                 </div>
+                <span className="font-bold text-lg">{stats.totalItems}</span>
               </div>
-              <div className="rounded-full bg-[#3F76FF]/10 p-3">
-                <Package className="h-5 w-5 text-[#3F76FF]" />
-              </div>
-            </div>
-          </Card>
-
-          {/* Total de Requisições */}
-          <Card className="p-6 bg-card border-border">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Total de Requisições</p>
-                <p className="text-3xl mt-2 text-neutral-900 dark:text-neutral-100">{metrics.totalRequests}</p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  {metrics.totalItemsRequested} itens solicitados
-                </p>
-              </div>
-              <div className="rounded-full bg-[#00C5E9]/10 p-3">
-                <BarChart3 className="h-5 w-5 text-[#00C5E9]" />
-              </div>
-            </div>
-          </Card>
-
-          {/* Taxa de Conclusão */}
-          <Card className="p-6 bg-card border-border">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Taxa de Conclusão</p>
-                <p className="text-3xl mt-2 text-neutral-900 dark:text-neutral-100">{metrics.completionRate}%</p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  {metrics.completedRequests} de {metrics.totalRequests} requisições
-                </p>
-              </div>
-              <div className="rounded-full bg-green-500/10 p-3">
-                <TrendingUp className="h-5 w-5 text-green-500" />
-              </div>
-            </div>
-          </Card>
-
-          {/* Usuários Ativos */}
-          <Card className="p-6 bg-card border-border">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Usuários Ativos</p>
-                <p className="text-3xl mt-2 text-neutral-900 dark:text-neutral-100">{metrics.activeUsers}</p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  Executores e Controladores
-                </p>
-              </div>
-              <div className="rounded-full bg-orange-500/10 p-3">
-                <Users className="h-5 w-5 text-orange-500" />
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        {/* Gráficos */}
-        <div className="grid gap-6 mt-6 lg:grid-cols-2">
-          {/* Tendência de Consumo vs Requisições */}
-          <Card className="p-6 bg-card border-border">
-            <h3 className="text-lg mb-4 text-neutral-900 dark:text-neutral-100">Tendência de Consumo vs Requisições</h3>
-            <div className="h-[300px] flex items-center justify-center border border-dashed border-border rounded-lg">
-              <div className="text-center text-muted-foreground">
-                <BarChart3 className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>Gráfico de tendências</p>
-                <p className="text-sm">(Dados: {trendData.length} períodos)</p>
-              </div>
-            </div>
-          </Card>
-
-          {/* Consumo por Unidade */}
-          <Card className="p-6 bg-card border-border">
-            <h3 className="text-lg mb-4 text-neutral-900 dark:text-neutral-100">Consumo por Unidade</h3>
-            <div className="h-[300px] flex items-center justify-center border border-dashed border-border rounded-lg">
-              <div className="text-center text-muted-foreground">
-                <BarChart3 className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>Gráfico de consumo</p>
-                <p className="text-sm">(Dados: {consumptionByUnit.length} unidades)</p>
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        {/* Tabelas de Dados */}
-        <div className="grid gap-6 mt-6 lg:grid-cols-2">
-          {/* Itens Mais Solicitados */}
-          <Card className="p-6 bg-card border-border">
-            <h3 className="text-lg mb-4 text-neutral-900 dark:text-neutral-100">Itens Mais Solicitados</h3>
-            <div className="space-y-3">
-              {topRequestedItems.length > 0 ? (
-                topRequestedItems.map((item, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#3F76FF]/10 text-sm text-[#3F76FF]">
-                        {index + 1}
-                      </div>
-                      <div>
-                        <p className="text-sm text-neutral-900 dark:text-neutral-100">{item.name}</p>
-                        <p className="text-xs text-muted-foreground">{item.count} requisições</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-neutral-900 dark:text-neutral-100">{item.quantity}</p>
-                      <p className="text-xs text-muted-foreground">unidades</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center text-muted-foreground py-8">Nenhum dado disponível</p>
-              )}
-            </div>
-          </Card>
-
-          {/* Top Executores/Controladores */}
-          <Card className="p-6 bg-card border-border">
-            <h3 className="text-lg mb-4 text-neutral-900 dark:text-neutral-100">Top Executores/Controladores</h3>
-            <div className="space-y-3">
-              {topUsers.length > 0 ? (
-                topUsers.map((user, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#00C5E9]/10 text-sm text-[#00C5E9]">
-                        {index + 1}
-                      </div>
-                      <div>
-                        <p className="text-sm text-neutral-900 dark:text-neutral-100">{user.name}</p>
-                        <p className="text-xs text-muted-foreground">{user.jobTitle}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-neutral-900 dark:text-neutral-100">{user.consumption}</p>
-                      <p className="text-xs text-muted-foreground">{user.movements} movimentações</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center text-muted-foreground py-8">Nenhum dado disponível</p>
-              )}
-            </div>
-          </Card>
-        </div>
-
-        {/* Produtos Críticos */}
-        {criticalStock.length > 0 && (
-          <Card className="p-6 bg-card border-border mt-6">
-            <h3 className="text-lg mb-4 text-neutral-900 dark:text-neutral-100">Produtos Críticos (Estoque Baixo)</h3>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {criticalStock.map((stock, index) => (
-                <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-red-500/5 border border-red-500/20">
-                  <div>
-                    <p className="text-sm text-neutral-900 dark:text-neutral-100">{stock.itemName}</p>
-                    <p className="text-xs text-muted-foreground">{stock.unitName}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm text-red-500">{stock.quantity}/{stock.minimum}</p>
-                    <p className="text-xs text-muted-foreground">Faltam {stock.deficit}</p>
-                  </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-slate-600" />
+                  <span className="text-sm">Total de Usuários</span>
                 </div>
-              ))}
+                <span className="font-bold text-lg">{stats.totalUsers}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-slate-600" />
+                  <span className="text-sm">Unidades Operacionais</span>
+                </div>
+                <span className="font-bold text-lg">{operationalUnits.length}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-slate-600" />
+                  <span className="text-sm">Pedidos Totais</span>
+                </div>
+                <span className="font-bold text-lg">{requests.length}</span>
+              </div>
             </div>
-          </Card>
-        )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

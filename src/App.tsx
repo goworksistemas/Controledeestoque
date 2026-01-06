@@ -73,7 +73,6 @@ function AppContent() {
 
           if (response.ok) {
             const data = await response.json();
-            console.log('✅ Database initialized:', data);
             localStorage.setItem('gowork_db_initialized', 'true');
           }
         } catch (error) {
@@ -151,7 +150,6 @@ export default function App() {
     // CRITICAL: Capture hash before React Router processes it
     // This preserves Supabase auth tokens that come in the URL hash
     if (window.location.hash && window.location.pathname.includes('reset-password')) {
-      console.log('🔒 Capturing auth hash before Router processes it:', window.location.hash);
       sessionStorage.setItem('supabase_auth_hash', window.location.hash);
     }
   }, []);

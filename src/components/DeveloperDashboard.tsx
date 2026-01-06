@@ -51,6 +51,7 @@ export function DeveloperDashboard() {
     primaryUnitId: '',
     additionalUnitIds: [] as string[],
     warehouseType: undefined as 'storage' | 'delivery' | undefined,
+    adminType: undefined as 'units' | 'warehouse' | undefined,
     jobTitle: '',
   });
 
@@ -86,6 +87,7 @@ export function DeveloperDashboard() {
       primaryUnitId: '',
       additionalUnitIds: [],
       warehouseType: undefined,
+      adminType: undefined,
       jobTitle: '',
     });
   };
@@ -127,6 +129,12 @@ export function DeveloperDashboard() {
       return;
     }
 
+    // Admin precisa de adminType
+    if (userForm.role === 'admin' && !userForm.adminType) {
+      toast.error('Selecione o tipo de administrador');
+      return;
+    }
+
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-46b247d8/auth/signup`,
@@ -144,6 +152,7 @@ export function DeveloperDashboard() {
             primaryUnitId: userForm.role === 'designer' || userForm.role === 'admin' || userForm.role === 'developer' ? undefined : userForm.primaryUnitId,
             additionalUnitIds: userForm.role === 'controller' ? userForm.additionalUnitIds : undefined,
             warehouseType: userForm.role === 'warehouse' ? userForm.warehouseType : undefined,
+            adminType: userForm.role === 'admin' ? userForm.adminType : undefined,
             jobTitle: userForm.jobTitle || undefined,
           }),
         }
@@ -155,7 +164,6 @@ export function DeveloperDashboard() {
       }
 
       const data = await response.json();
-      console.log('✅ Usuário criado:', data);
       
       toast.success(`Usuário ${userForm.name} criado com sucesso!`);
       setIsAddUserDialogOpen(false);
@@ -179,6 +187,7 @@ export function DeveloperDashboard() {
       primaryUnitId: user.primaryUnitId || '',
       additionalUnitIds: user.additionalUnitIds || [],
       warehouseType: user.warehouseType,
+      adminType: user.adminType,
       jobTitle: user.jobTitle || '',
     });
     setIsEditUserDialogOpen(true);
@@ -189,6 +198,12 @@ export function DeveloperDashboard() {
 
     if (!userForm.name || !userForm.email || !userForm.role) {
       toast.error('Preencha os campos obrigatórios (nome, email e perfil)');
+      return;
+    }
+
+    // Admin precisa de adminType
+    if (userForm.role === 'admin' && !userForm.adminType) {
+      toast.error('Selecione o tipo de administrador');
       return;
     }
 
@@ -215,6 +230,7 @@ export function DeveloperDashboard() {
             primaryUnitId: userForm.role === 'designer' || userForm.role === 'admin' || userForm.role === 'developer' ? null : userForm.primaryUnitId,
             additionalUnitIds: userForm.role === 'controller' ? userForm.additionalUnitIds : null,
             warehouseType: userForm.role === 'warehouse' ? userForm.warehouseType : null,
+            adminType: userForm.role === 'admin' ? userForm.adminType : null,
             jobTitle: userForm.jobTitle || null,
             password: userForm.password || undefined,
           }),
@@ -227,7 +243,6 @@ export function DeveloperDashboard() {
       }
 
       const updatedUser = await response.json();
-      console.log('✅ Usuário atualizado:', updatedUser);
 
       // Atualizar o estado local
       updateUser(selectedUser.id, {
@@ -237,6 +252,7 @@ export function DeveloperDashboard() {
         primaryUnitId: userForm.role === 'designer' || userForm.role === 'admin' || userForm.role === 'developer' ? undefined : userForm.primaryUnitId,
         additionalUnitIds: userForm.role === 'controller' ? userForm.additionalUnitIds : undefined,
         warehouseType: userForm.role === 'warehouse' ? userForm.warehouseType : undefined,
+        adminType: userForm.role === 'admin' ? userForm.adminType : undefined,
         jobTitle: userForm.jobTitle,
       });
 
@@ -362,11 +378,13 @@ export function DeveloperDashboard() {
 
   const handleEditUnit = (unit: Unit) => {
     setSelectedUnit(unit);
+    const floorsArray = Array.isArray(unit.floors) ? unit.floors : [];
+    
     setUnitForm({
       name: unit.name,
       address: unit.address,
       status: unit.status,
-      floors: unit.floors || [],
+      floors: floorsArray,
     });
     setIsEditUnitDialogOpen(true);
   };
@@ -374,13 +392,15 @@ export function DeveloperDashboard() {
   const handleUpdateUnit = async () => {
     if (!selectedUnit) return;
 
+    const updates = {
+      name: unitForm.name,
+      address: unitForm.address,
+      status: unitForm.status,
+      floors: unitForm.floors,
+    };
+
     try {
-      await updateUnit(selectedUnit.id, {
-        name: unitForm.name,
-        address: unitForm.address,
-        status: unitForm.status,
-        floors: unitForm.floors,
-      });
+      await updateUnit(selectedUnit.id, updates);
       toast.success('Unidade atualizada com sucesso');
       setIsEditUnitDialogOpen(false);
       setSelectedUnit(null);
@@ -542,53 +562,61 @@ export function DeveloperDashboard() {
     <div className="container mx-auto p-4 space-y-6">
       <DeveloperModeSelector currentViewRole={viewAsRole} onSelectRole={setViewAsRole} />
       
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-foreground">Painel do Desenvolvedor</h1>
-          <p className="text-muted-foreground">Gestão de usuários, unidades e produtos do sistema</p>
+          <p className="text-muted-foreground text-sm">Gestão de usuários, unidades e produtos do sistema</p>
         </div>
       </div>
 
       <Tabs defaultValue="users" className="space-y-4">
-        <TabsList className="grid w-full max-w-4xl grid-cols-6">
-          <TabsTrigger value="users" className="gap-2">
-            <Users className="w-4 h-4" />
-            Usuários
-          </TabsTrigger>
-          <TabsTrigger value="units" className="gap-2">
-            <Building2 className="w-4 h-4" />
-            Unidades
-          </TabsTrigger>
-          <TabsTrigger value="items" className="gap-2">
-            <Package className="w-4 h-4" />
-            Criar Produto
-          </TabsTrigger>
-          <TabsTrigger value="products-list" className="gap-2">
-            <List className="w-4 h-4" />
-            Ver Produtos
-          </TabsTrigger>
-          <TabsTrigger value="test-flow" className="gap-2">
-            <TestTube2 className="w-4 h-4" />
-            Testar Fluxo
-          </TabsTrigger>
-          <TabsTrigger value="migration" className="gap-2">
-            <ShieldAlert className="w-4 h-4" />
-            Migração
-          </TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
+          <TabsList className="grid w-full min-w-[650px] sm:min-w-0 max-w-4xl grid-cols-6">
+            <TabsTrigger value="users" className="gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3">
+              <Users className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">Usuários</span>
+              <span className="sm:hidden">Users</span>
+            </TabsTrigger>
+            <TabsTrigger value="units" className="gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3">
+              <Building2 className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">Unidades</span>
+              <span className="sm:hidden">Units</span>
+            </TabsTrigger>
+            <TabsTrigger value="items" className="gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3">
+              <Package className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="hidden md:inline">Criar Produto</span>
+              <span className="md:hidden">Criar</span>
+            </TabsTrigger>
+            <TabsTrigger value="products-list" className="gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3">
+              <List className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="hidden md:inline">Ver Produtos</span>
+              <span className="md:hidden">Ver</span>
+            </TabsTrigger>
+            <TabsTrigger value="test-flow" className="gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3">
+              <TestTube2 className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="hidden md:inline">Testar Fluxo</span>
+              <span className="md:hidden">Test</span>
+            </TabsTrigger>
+            <TabsTrigger value="migration" className="gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3">
+              <ShieldAlert className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">Migração</span>
+              <span className="sm:hidden">Migr</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* TAB: Gestão de Usuários */}
         <TabsContent value="users" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>Gestão de Usuários</CardTitle>
                   <CardDescription>Crie, edite ou remova usuários do sistema</CardDescription>
                 </div>
                 <Dialog open={isAddUserDialogOpen} onOpenChange={setIsAddUserDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button className="gap-2">
+                    <Button className="gap-2 w-full sm:w-auto">
                       <PlusCircle className="w-4 h-4" />
                       Novo Usuário
                     </Button>
@@ -599,7 +627,7 @@ export function DeveloperDashboard() {
                       <DialogDescription>Preencha os dados do novo usuário. A senha será enviada por email.</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="name">Nome *</Label>
                           <Input
@@ -619,7 +647,7 @@ export function DeveloperDashboard() {
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="email">Email *</Label>
                           <Input
@@ -641,7 +669,7 @@ export function DeveloperDashboard() {
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="role">Perfil *</Label>
                           <Select
@@ -711,7 +739,7 @@ export function DeveloperDashboard() {
                               </Button>
                             </div>
                           </div>
-                          <div className="grid grid-cols-2 gap-3 p-4 border rounded-lg bg-slate-50 max-h-[200px] overflow-y-auto">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 border rounded-lg bg-slate-50 max-h-[200px] overflow-y-auto">
                             {units.filter(u => u.id !== userForm.primaryUnitId).map((unit) => (
                               <div key={unit.id} className="flex items-center space-x-2">
                                 <Checkbox
@@ -763,6 +791,37 @@ export function DeveloperDashboard() {
                           </Select>
                         </div>
                       )}
+
+                      {userForm.role === 'admin' && (
+                        <div className="space-y-2">
+                          <Label htmlFor="adminType">Tipo de Administrador *</Label>
+                          <Select
+                            value={userForm.adminType}
+                            onValueChange={(value) => setUserForm({ ...userForm, adminType: value as 'units' | 'warehouse' })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione o tipo de admin" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="units">
+                                <div className="flex flex-col items-start">
+                                  <span className="font-medium">Admin Controlador</span>
+                                  <span className="text-xs text-slate-500">Gestão de estoque e materiais</span>
+                                </div>
+                              </SelectItem>
+                              <SelectItem value="warehouse">
+                                <div className="flex flex-col items-start">
+                                  <span className="font-medium">Admin Designer</span>
+                                  <span className="text-xs text-slate-500">Gestão de móveis e design</span>
+                                </div>
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-slate-500">
+                            💡 Admin Controlador pode visualizar como Controlador. Admin Designer pode visualizar como Designer.
+                          </p>
+                        </div>
+                      )}
                     </div>
                     <div className="flex justify-end gap-2">
                       <Button variant="outline" onClick={() => setIsAddUserDialogOpen(false)}>
@@ -774,8 +833,8 @@ export function DeveloperDashboard() {
                 </Dialog>
               </div>
             </CardHeader>
-            <CardContent>
-              <Table>
+            <CardContent className="overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0">
+              <Table className="min-w-[700px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nome</TableHead>
@@ -791,9 +850,16 @@ export function DeveloperDashboard() {
                       <TableCell>{user.name}</TableCell>
                       <TableCell className="text-muted-foreground">{user.email}</TableCell>
                       <TableCell>
-                        <Badge variant={getRoleBadgeVariant(user.role)}>
-                          {getRoleName(user.role)}
-                        </Badge>
+                        <div className="flex flex-col gap-1">
+                          <Badge variant={getRoleBadgeVariant(user.role)}>
+                            {getRoleName(user.role)}
+                          </Badge>
+                          {user.role === 'admin' && user.adminType && (
+                            <span className="text-xs text-slate-500">
+                              {user.adminType === 'units' ? '📊 Controlador' : '🎨 Designer'}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {user.primaryUnitId ? (
@@ -858,14 +924,14 @@ export function DeveloperDashboard() {
         <TabsContent value="items" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>Gestão de Produtos</CardTitle>
                   <CardDescription>Adicione novos itens ao sistema</CardDescription>
                 </div>
                 <Dialog open={isAddItemDialogOpen} onOpenChange={setIsAddItemDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button className="gap-2">
+                    <Button className="gap-2 w-full sm:w-auto">
                       <PlusCircle className="w-4 h-4" />
                       Novo Produto
                     </Button>
@@ -876,7 +942,7 @@ export function DeveloperDashboard() {
                       <DialogDescription>O produto será criado em todas as unidades com estoque zerado</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="itemName">Nome do Produto *</Label>
                           <Input
@@ -914,7 +980,7 @@ export function DeveloperDashboard() {
                           placeholder="Descrição detalhada do produto"
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="unitOfMeasure">Unidade de Medida</Label>
                           <Input
@@ -934,7 +1000,7 @@ export function DeveloperDashboard() {
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="defaultMinQuantity">Estoque Mínimo</Label>
                           <Input
@@ -1035,8 +1101,8 @@ export function DeveloperDashboard() {
                 </Dialog>
               </div>
             </CardHeader>
-            <CardContent>
-              <Table>
+            <CardContent className="overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0">
+              <Table className="min-w-[700px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>ID</TableHead>
@@ -1118,23 +1184,23 @@ export function DeveloperDashboard() {
         <TabsContent value="units" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>Gestão de Unidades</CardTitle>
                   <CardDescription>Crie, edite ou remova unidades do sistema</CardDescription>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <Button 
                     variant="outline" 
                     size="sm"
                     onClick={handleInitSchema}
-                    className="gap-2"
+                    className="gap-2 w-full sm:w-auto"
                   >
                     🔧 Atualizar Schema DB
                   </Button>
                   <Dialog open={isAddUnitDialogOpen} onOpenChange={setIsAddUnitDialogOpen}>
                     <DialogTrigger asChild>
-                      <Button className="gap-2">
+                      <Button className="gap-2 w-full sm:w-auto">
                         <PlusCircle className="w-4 h-4" />
                         Nova Unidade
                       </Button>
@@ -1207,12 +1273,14 @@ export function DeveloperDashboard() {
                             </Button>
                           </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-3 p-4 border rounded-lg bg-slate-50 max-h-[300px] overflow-y-auto">
-                          {['3º Subsolo', '2º Subsolo', '1º Subsolo', 'Térreo', '1º Andar', '2º Andar', '3º Andar', '4º Andar', '5º Andar', '6º Andar', '7º Andar', '8º Andar', '9º Andar', '10º Andar', '11º Andar', '12º Andar', '13º Andar', '14º Andar', '15º Andar', '16º Andar', '17º Andar', '18º Andar', '19º Andar', '20º Andar', '21º Andar', '22º Andar', '23º Andar', '24º Andar', '25º Andar', '26º Andar', '27º Andar', '28º Andar', '29º Andar', 'Cobertura'].map((floor) => (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 border rounded-lg bg-slate-50 max-h-[300px] overflow-y-auto">
+                          {['3º Subsolo', '2º Subsolo', '1º Subsolo', 'Térreo', '1º Andar', '2º Andar', '3º Andar', '4º Andar', '5º Andar', '6º Andar', '7º Andar', '8º Andar', '9º Andar', '10º Andar', '11º Andar', '12º Andar', '13º Andar', '14º Andar', '15º Andar', '16º Andar', '17º Andar', '18º Andar', '19º Andar', '20º Andar', '21º Andar', '22º Andar', '23º Andar', '24º Andar', '25º Andar', '26º Andar', '27º Andar', '28º Andar', '29º Andar', 'Cobertura'].map((floor) => {
+                            const isChecked = Array.isArray(unitForm.floors) && unitForm.floors.includes(floor);
+                            return (
                             <div key={floor} className="flex items-center space-x-2">
                               <Checkbox
                                 id={`add-floor-${floor}`}
-                                checked={unitForm.floors.includes(floor)}
+                                checked={isChecked}
                                 onCheckedChange={(checked) => {
                                   if (checked) {
                                     const order = ['3º Subsolo', '2º Subsolo', '1º Subsolo', 'Térreo', '1º Andar', '2º Andar', '3º Andar', '4º Andar', '5º Andar', '6º Andar', '7º Andar', '8º Andar', '9º Andar', '10º Andar', '11º Andar', '12º Andar', '13º Andar', '14º Andar', '15º Andar', '16º Andar', '17º Andar', '18º Andar', '19º Andar', '20º Andar', '21º Andar', '22º Andar', '23º Andar', '24º Andar', '25º Andar', '26º Andar', '27º Andar', '28º Andar', '29º Andar', 'Cobertura'];
@@ -1235,7 +1303,8 @@ export function DeveloperDashboard() {
                                 {floor}
                               </label>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
@@ -1250,8 +1319,8 @@ export function DeveloperDashboard() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
-              <Table>
+            <CardContent className="overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0">
+              <Table className="min-w-[600px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nome</TableHead>
@@ -1363,6 +1432,193 @@ export function DeveloperDashboard() {
               >
                 <ShieldAlert className="w-4 h-4 mr-2" />
                 Executar Migração de Unit Stocks
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5" />
+                Migração de TEXT para UUID
+              </CardTitle>
+              <CardDescription>
+                Converte as colunas id das tabelas units e floors de TEXT para UUID (tipo correto)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4">
+                <p className="text-sm">
+                  <strong>⚠️ ATENÇÃO:</strong> Esta migração valida se todos os IDs são UUIDs válidos e fornece o SQL para converter as colunas. Execute o SQL manualmente no Supabase SQL Editor após a validação.
+                </p>
+              </div>
+              
+              <Button
+                onClick={async () => {
+                  try {
+                    toast.loading('Validando IDs...');
+                    const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-46b247d8/migrate-text-to-uuid`, {
+                      method: 'POST',
+                      headers: {
+                        'Authorization': `Bearer ${publicAnonKey}`,
+                        'Content-Type': 'application/json',
+                      },
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (!response.ok) {
+                      toast.dismiss();
+                      if (result.invalidUnits || result.invalidFloors) {
+                        toast.error('Existem IDs inválidos! Verifique o console para detalhes.');
+                        console.error('❌ IDs inválidos encontrados:');
+                        if (result.invalidUnits) console.error('Units:', result.invalidUnits);
+                        if (result.invalidFloors) console.error('Floors:', result.invalidFloors);
+                      } else {
+                        toast.error(result.error || 'Erro na validação');
+                      }
+                      return;
+                    }
+                    
+                    toast.dismiss();
+                    toast.success('Validação concluída! Verifique o console para o SQL de migração.');
+                    console.log('✅ Validação concluída!');
+                    console.log('📋 Execute o seguinte SQL no Supabase SQL Editor:');
+                    console.log(result.sql);
+                    console.log('');
+                    console.log(`✅ ${result.unitsChecked} units verificadas`);
+                    console.log(`✅ ${result.floorsChecked} floors verificadas`);
+                  } catch (error) {
+                    toast.dismiss();
+                    toast.error('Erro ao validar IDs');
+                    console.error('❌ Erro na validação:', error);
+                  }
+                }}
+                className="w-full"
+              >
+                <ShieldAlert className="w-4 h-4 mr-2" />
+                Validar IDs e Gerar SQL de Migração
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5" />
+                Adicionar Coluna admin_type
+              </CardTitle>
+              <CardDescription>
+                Adiciona a coluna admin_type à tabela users para diferenciar Admin Controlador e Admin Designer
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-4">
+                <p className="text-sm">
+                  <strong>ℹ️ Informação:</strong> Esta operação adiciona a coluna admin_type (TEXT) à tabela users. Se a coluna já existir, não fará nada.
+                </p>
+              </div>
+              
+              <Button
+                onClick={async () => {
+                  try {
+                    toast.loading('Adicionando coluna admin_type...');
+                    const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-46b247d8/add-admin-type-column`, {
+                      method: 'POST',
+                      headers: {
+                        'Authorization': `Bearer ${publicAnonKey}`,
+                        'Content-Type': 'application/json',
+                      },
+                    });
+                    
+                    const result = await response.json();
+                    
+                    toast.dismiss();
+                    
+                    if (result.sql) {
+                      toast.info('Execute o SQL manualmente no Supabase SQL Editor');
+                      console.log('📋 Execute o seguinte SQL no Supabase SQL Editor:');
+                      console.log(result.sql);
+                    } else {
+                      toast.success('Coluna admin_type adicionada com sucesso!');
+                    }
+                    
+                    console.log('✅ Resultado:', result);
+                  } catch (error) {
+                    toast.dismiss();
+                    toast.error('Erro ao adicionar coluna');
+                    console.error('❌ Erro:', error);
+                  }
+                }}
+                className="w-full"
+              >
+                <ShieldAlert className="w-4 h-4 mr-2" />
+                Adicionar Coluna admin_type
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5" />
+                Corrigir Tabelas de Delivery
+              </CardTitle>
+              <CardDescription>
+                Adiciona DEFAULT gen_random_uuid() nas tabelas delivery_batches e delivery_confirmations
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4">
+                <p className="text-sm">
+                  <strong>⚠️ ERRO IDENTIFICADO:</strong> As colunas <code>id</code> nas tabelas <code>delivery_batches</code> e <code>delivery_confirmations</code> não têm DEFAULT gen_random_uuid(), causando erro "null value in column id violates not-null constraint".
+                </p>
+              </div>
+              
+              <Button
+                onClick={async () => {
+                  try {
+                    toast.loading('Gerando SQL de correção...');
+                    const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-46b247d8/fix-delivery-tables`, {
+                      method: 'POST',
+                      headers: {
+                        'Authorization': `Bearer ${publicAnonKey}`,
+                        'Content-Type': 'application/json',
+                      },
+                    });
+                    
+                    const result = await response.json();
+                    
+                    toast.dismiss();
+                    if (!response.ok) {
+                      toast.error(result.error || 'Erro ao gerar SQL');
+                      console.error('❌ Erro:', result);
+                      return;
+                    }
+                    
+                    toast.success('SQL gerado! Copie do console e execute no Supabase SQL Editor.');
+                    console.log('🔧 ========== CORREÇÃO DE TABELAS DE DELIVERY ==========');
+                    console.log('');
+                    console.log('📋 INSTRUÇÕES:');
+                    result.instructions?.forEach((instruction: string, i: number) => {
+                      console.log(`   ${i + 1}. ${instruction}`);
+                    });
+                    console.log('');
+                    console.log('📝 SQL PARA EXECUTAR:');
+                    console.log('');
+                    console.log(result.sqlToExecute);
+                    console.log('');
+                    console.log('🔧 ========================================');
+                  } catch (error) {
+                    toast.dismiss();
+                    toast.error('Erro ao gerar SQL de correção');
+                    console.error('❌ Erro:', error);
+                  }
+                }}
+                className="w-full"
+              >
+                <ShieldAlert className="w-4 h-4 mr-2" />
+                Gerar SQL de Correção para Tabelas de Delivery
               </Button>
             </CardContent>
           </Card>
@@ -1516,6 +1772,37 @@ export function DeveloperDashboard() {
                     <SelectItem value="delivery">Motorista/Entrega</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+
+            {userForm.role === 'admin' && (
+              <div className="space-y-2">
+                <Label htmlFor="editAdminType">Tipo de Administrador *</Label>
+                <Select
+                  value={userForm.adminType}
+                  onValueChange={(value) => setUserForm({ ...userForm, adminType: value as 'units' | 'warehouse' })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o tipo de admin" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="units">
+                      <div className="flex flex-col items-start">
+                        <span className="font-medium">Admin Controlador</span>
+                        <span className="text-xs text-slate-500">Gestão de estoque e materiais</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="warehouse">
+                      <div className="flex flex-col items-start">
+                        <span className="font-medium">Admin Designer</span>
+                        <span className="text-xs text-slate-500">Gestão de móveis e design</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">
+                  💡 Admin Controlador pode visualizar como Controlador. Admin Designer pode visualizar como Designer.
+                </p>
               </div>
             )}
           </div>
@@ -1762,11 +2049,13 @@ export function DeveloperDashboard() {
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3 p-4 border rounded-lg bg-slate-50 max-h-[300px] overflow-y-auto">
-                {['3º Subsolo', '2º Subsolo', '1º Subsolo', 'Térreo', '1º Andar', '2º Andar', '3º Andar', '4º Andar', '5º Andar', '6º Andar', '7º Andar', '8º Andar', '9º Andar', '10º Andar', '11º Andar', '12º Andar', '13º Andar', '14º Andar', '15º Andar', '16º Andar', '17º Andar', '18º Andar', '19º Andar', '20º Andar', '21º Andar', '22º Andar', '23º Andar', '24º Andar', '25º Andar', '26º Andar', '27º Andar', '28º Andar', '29º Andar', 'Cobertura'].map((floor) => (
+                {['3º Subsolo', '2º Subsolo', '1º Subsolo', 'Térreo', '1º Andar', '2º Andar', '3º Andar', '4º Andar', '5º Andar', '6º Andar', '7º Andar', '8º Andar', '9º Andar', '10º Andar', '11º Andar', '12º Andar', '13º Andar', '14º Andar', '15º Andar', '16º Andar', '17º Andar', '18º Andar', '19º Andar', '20º Andar', '21º Andar', '22º Andar', '23º Andar', '24º Andar', '25º Andar', '26º Andar', '27º Andar', '28º Andar', '29º Andar', 'Cobertura'].map((floor) => {
+                  const isChecked = Array.isArray(unitForm.floors) && unitForm.floors.includes(floor);
+                  return (
                   <div key={floor} className="flex items-center space-x-2">
                     <Checkbox
                       id={`edit-floor-${floor}`}
-                      checked={unitForm.floors.includes(floor)}
+                      checked={isChecked}
                       onCheckedChange={(checked) => {
                         if (checked) {
                           const order = ['3º Subsolo', '2º Subsolo', '1º Subsolo', 'Térreo', '1º Andar', '2º Andar', '3º Andar', '4º Andar', '5º Andar', '6º Andar', '7º Andar', '8º Andar', '9º Andar', '10º Andar', '11º Andar', '12º Andar', '13º Andar', '14º Andar', '15º Andar', '16º Andar', '17º Andar', '18º Andar', '19º Andar', '20º Andar', '21º Andar', '22º Andar', '23º Andar', '24º Andar', '25º Andar', '26º Andar', '27º Andar', '28º Andar', '29º Andar', 'Cobertura'];
@@ -1789,7 +2078,8 @@ export function DeveloperDashboard() {
                       {floor}
                     </label>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

@@ -31,12 +31,12 @@ interface AppContextType {
   login: (userId: string) => void;
   logout: () => void;
   setCurrentUnit: (unitId: string) => void;
-  addMovement: (movement: Omit<SimpleMovement, 'id' | 'timestamp' | 'createdAt'>) => void;
-  addLoan: (loan: Omit<Loan, 'id' | 'withdrawalDate'>) => void;
-  updateLoan: (loanId: string, updates: Partial<Loan>) => void;
-  updateStock: (stockId: string, quantity: number) => void;
+  addMovement: (movement: Omit<SimpleMovement, 'id' | 'timestamp' | 'createdAt'>) => Promise<void>;
+  addLoan: (loan: Omit<Loan, 'id' | 'withdrawalDate'>) => Promise<void>;
+  updateLoan: (loanId: string, updates: Partial<Loan>) => Promise<void>;
+  updateStock: (stockId: string, quantity: number) => Promise<void>;
   updateStockWithLocation: (stockId: string, quantity: number, location: string) => void;
-  addItemWithStock: (item: Omit<Item, 'id'> & { createdAt?: Date; updatedAt?: Date }, unitId: string, quantity: number, location: string) => string;
+  addItemWithStock: (item: Omit<Item, 'id'> & { createdAt?: Date; updatedAt?: Date }, unitId: string, quantity: number, location: string) => Promise<string>;
   addItem: (item: Omit<Item, 'id'> & { createdAt?: Date; updatedAt?: Date }) => void;
   updateItem: (itemId: string, updates: Partial<Item>) => void;
   addStock: (stock: Omit<UnitStock, 'id'>) => void;
@@ -68,7 +68,9 @@ interface AppContextType {
   getConfirmationsForBatch: (batchId: string) => DeliveryConfirmation[];
   separateItemInBatch: (requestId: string, batchId: string) => Promise<void>;
   getUserDailyCode: (userId: string) => string;
+  getUserByDailyCode: (code: string) => User | undefined;
   validateUserDailyCode: (userId: string, code: string) => boolean;
+  confirmFurnitureDelivery: (furnitureRequestId: string, confirmation: Omit<DeliveryConfirmation, 'id' | 'furnitureRequestId' | 'timestamp'>, receiverDailyCode: string) => Promise<void>;
   markDeliveryAsPendingConfirmation: (batchId: string, notes?: string) => Promise<void>;
   confirmDeliveryByRequester: (
     batchId: string, 
@@ -157,18 +159,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         setAppUsers(usersData || []);
         
+        console.log('🏢 [AppContext] Units recebidas do backend:', JSON.stringify(unitsData, null, 2));
+        
         // Ensure units always have floors as array
-        const unitsWithFloors = (unitsData || []).map(unit => ({
-          ...unit,
-          floors: Array.isArray(unit.floors) ? unit.floors : []
-        }));
+        const unitsWithFloors = (unitsData || []).map(unit => {
+          console.log(`🏢 [AppContext] Unit "${unit.name}" - floors:`, unit.floors, 'Type:', typeof unit.floors, 'isArray:', Array.isArray(unit.floors));
+          return {
+            ...unit,
+            floors: Array.isArray(unit.floors) ? unit.floors : []
+          };
+        });
+        
+        console.log('🏢 [AppContext] Units PROCESSADAS:', JSON.stringify(unitsWithFloors, null, 2));
         setAppUnits(unitsWithFloors);
         
         setAppCategories(categoriesData || []);
         setAppItems(itemsData || []);
         setAppUnitStocks(unitStocksData || []);
         setAppMovements(movementsData || []);
-        setAppLoans(loansData || []);
+        
+        // Convert loan dates from ISO strings to Date objects
+        const loansWithDates = (loansData || []).map((loan: any) => ({
+          ...loan,
+          withdrawalDate: loan.withdrawalDate ? new Date(loan.withdrawalDate) : new Date(),
+          expectedReturnDate: loan.expectedReturnDate ? new Date(loan.expectedReturnDate) : new Date(),
+          returnDate: loan.returnDate ? new Date(loan.returnDate) : undefined,
+        }));
+        setAppLoans(loansWithDates);
+        
         setAppRequests(requestsData || []);
         setAppFurnitureTransfers(furnitureTransfersData || []);
         setAppFurnitureRemovalRequests(furnitureRemovalRequestsData || []);
@@ -176,12 +194,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setAppDeliveryBatches(deliveryBatchesData || []);
         setAppDeliveryConfirmations(deliveryConfirmationsData || []);
 
-        console.log('✅ Dados carregados com sucesso!');
-        console.log('📊 Items:', itemsData?.length || 0);
-        console.log('📦 Stocks:', unitStocksData?.length || 0);
-        console.log('📝 Movements:', movementsData?.length || 0);
-        console.log('🏢 Units:', unitsData?.length || 0);
-        console.log('🏢 Units floors check:', unitsData?.map(u => ({ id: u.id, name: u.name, floors: u.floors, isArray: Array.isArray(u.floors) })));
+        // Data loaded successfully
         
         // Restore user session after data is loaded
         const pendingUserId = localStorage.getItem('gowork_pending_user_id');
@@ -260,14 +273,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addMovement = async (movementData: Omit<SimpleMovement, 'id' | 'timestamp' | 'createdAt'>) => {
-    console.log('🚀 addMovement chamado com:', movementData);
-    console.log('🔍 unitId tipo:', typeof movementData.unitId);
-    console.log('🔍 unitId valor:', movementData.unitId);
     const now = new Date();
     
     try {
-      console.log('💾 Tentando persistir no backend...');
-      
       // NÃO enviar id - deixar o banco gerar o UUID
       const dataToSend = {
         type: movementData.type,
@@ -279,37 +287,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         notes: movementData.notes,
       };
       
-      console.log('📤 Enviando para backend:', dataToSend);
-      console.log('📤 unitId no payload:', dataToSend.unitId);
-      
       // Persistir no backend e receber o movimento com ID gerado pelo banco
       const createdMovement = await api.movements.create(dataToSend);
-      console.log('✅ Movimento persistido no backend com ID:', createdMovement.id);
+      console.log('✅ Movimento criado:', createdMovement.id);
       
       // Adicionar ao estado com o ID real do banco
       setAppMovements(prev => [...prev, createdMovement]);
 
-      // IMPORTANTE: Recarregar os stocks do backend pois o stock pode ter sido criado
-      console.log('🔄 Recarregando stocks do backend...');
+      // IMPORTANTE: Recarregar os stocks do backend pois o stock pode ter sido criado/atualizado
       const updatedStocks = await api.unitStocks.getAll();
-      console.log('📊 Stocks ANTES de atualizar estado:', appUnitStocks.length);
-      console.log('📊 Stocks RECEBIDOS do backend:', updatedStocks.length);
-      console.log('🔍 Stock ANTES da movimentação:', 
-        appUnitStocks.find(s => s.itemId === movementData.itemId && s.unitId === movementData.unitId)
-      );
-      console.log('🔍 Stock DEPOIS da movimentação (do backend):', 
-        updatedStocks.find(s => s.itemId === movementData.itemId && s.unitId === movementData.unitId)
-      );
       setAppUnitStocks(updatedStocks);
-      console.log('✅ Stocks recarregados e estado atualizado!');
+      console.log('✅ Stocks atualizados após movimentação');
       
     } catch (error) {
       console.error('❌ Erro ao criar movimento:', error);
-      console.error('❌ Erro DETALHADO:', {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        details: (error as any).details,
-        movementData: movementData,
-      });
       throw error;
     }
   };
@@ -327,16 +318,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Save to backend
     try {
       const createdLoan = await api.loans.create({
-        ...loan,
+        itemId: loan.itemId,
+        unitId: loan.unitId,
+        responsibleUserId: loan.responsibleUserId,
+        serialNumber: loan.serialNumber,
+        quantity: loan.quantity,
+        status: loan.status,
+        observations: loan.observations,
         withdrawalDate: new Date().toISOString(),
+        expectedReturnDate: loan.expectedReturnDate instanceof Date 
+          ? loan.expectedReturnDate.toISOString() 
+          : loan.expectedReturnDate,
       });
+      
+      // Convert dates from ISO strings to Date objects
+      const loanWithDates = {
+        ...createdLoan,
+        withdrawalDate: createdLoan.withdrawalDate ? new Date(createdLoan.withdrawalDate) : new Date(),
+        expectedReturnDate: createdLoan.expectedReturnDate ? new Date(createdLoan.expectedReturnDate) : new Date(),
+        returnDate: createdLoan.returnDate ? new Date(createdLoan.returnDate) : undefined,
+      };
       
       // Replace temp loan with real loan from backend
       setAppLoans(prev => prev.map(l => 
-        l.id === tempId ? createdLoan : l
+        l.id === tempId ? loanWithDates : l
       ));
 
-      console.log('✅ Empréstimo criado no backend:', createdLoan);
     } catch (error) {
       console.error('❌ Erro ao criar empréstimo no backend:', error);
       // Rollback: remove temp loan
@@ -345,27 +352,63 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateLoan = (loanId: string, updates: Partial<Loan>) => {
+  const updateLoan = async (loanId: string, updates: Partial<Loan>) => {
+    // Update locally first (optimistic update)
     setAppLoans(prev => prev.map(loan => 
       loan.id === loanId ? { ...loan, ...updates } : loan
     ));
+
+    // Só atualizar no backend se não for um ID temporário
+    if (!loanId.startsWith('loan-temp-')) {
+      try {
+        const updatesToSend = {
+          ...updates,
+          returnDate: updates.returnDate instanceof Date 
+            ? updates.returnDate.toISOString() 
+            : updates.returnDate,
+        };
+        
+        await api.loans.update(loanId, updatesToSend);
+      } catch (error) {
+        console.error('❌ Erro ao atualizar empréstimo no backend:', error);
+        // Rollback on error
+        const originalLoan = appLoans.find(l => l.id === loanId);
+        if (originalLoan) {
+          setAppLoans(prev => prev.map(loan => 
+            loan.id === loanId ? originalLoan : loan
+          ));
+        }
+        throw error;
+      }
+    }
   };
 
-  const updateStock = async (stockId: string, quantity: number) => {
+  const updateStock = async (stockId: string, quantity: number, location?: string, minimumQuantity?: number) => {
     const stock = appUnitStocks.find(s => s.id === stockId);
     if (stock) {
       const updatedStock: UnitStock = {
         ...stock,
         quantity,
+        ...(location !== undefined && { location }),
+        ...(minimumQuantity !== undefined && { minimumQuantity }),
       };
-      try {
-        await api.unitStocks.update(stockId, updatedStock);
+      
+      // Só atualizar no backend se não for um ID temporário
+      if (!stockId.startsWith('stock-temp-')) {
+        try {
+          await api.unitStocks.update(stockId, updatedStock);
+          setAppUnitStocks(prev => prev.map(s =>
+            s.id === stockId ? updatedStock : s
+          ));
+        } catch (error) {
+          console.error('❌ Erro ao atualizar estoque:', error);
+          throw error;
+        }
+      } else {
+        // Se for temporário, apenas atualizar no frontend
         setAppUnitStocks(prev => prev.map(s =>
           s.id === stockId ? updatedStock : s
         ));
-      } catch (error) {
-        console.error('❌ Erro ao atualizar estoque:', error);
-        throw error;
       }
     }
   };
@@ -376,35 +419,70 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ));
   };
 
-  const addItemWithStock = (itemData: Omit<Item, 'id'> & { createdAt?: Date; updatedAt?: Date }, unitId: string, quantity: number, location: string): string => {
-    // Gerar UUID real ao invés de string customizada
-    const itemId = crypto.randomUUID();
+  const addItemWithStock = async (itemData: Omit<Item, 'id'> & { createdAt?: Date; updatedAt?: Date }, unitId: string, quantity: number, location: string): Promise<string> => {
+    // Gerar UUID temporário para o frontend
+    const tempId = crypto.randomUUID();
     const newItem: Item = {
       ...itemData,
-      id: itemId,
+      id: tempId,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
     setAppItems(prev => [...prev, newItem]);
 
-    // Create initial stock entries
-    // Se for móvel, não cria estoque no almoxarifado central
     const warehouseId = getWarehouseUnitId();
-    const unitsToCreateStock = itemData.isFurniture 
-      ? appUnits.filter(u => u.id !== warehouseId)
-      : appUnits;
     
-    const newStocks = unitsToCreateStock.map(unit => ({
-      id: crypto.randomUUID(), // UUID para cada stock
-      itemId: itemId,
-      unitId: unit.id,
-      quantity: unit.id === unitId ? quantity : 0,
-      minimumQuantity: itemData.defaultMinimumQuantity || 5,
-      location: unit.id === unitId ? location : '',
-    }));
-    setAppUnitStocks(prev => [...prev, ...newStocks]);
-    
-    return itemId;
+    // ✅ SALVAR NO BACKEND PRIMEIRO - aguardar ID real do banco
+    try {
+      // 1. Salvar o item e pegar o ID real do backend
+      const createdItem = await api.items.create(newItem);
+      const realItemId = createdItem.id;
+      
+      // Atualizar o item no frontend com o ID real
+      setAppItems(prev => prev.map(item => 
+        item.id === tempId ? { ...item, id: realItemId } : item
+      ));
+      
+      // 2. Criar stocks com o ID REAL do item
+      let newStocks: UnitStock[] = [];
+      
+      if (itemData.isFurniture) {
+        // Móvel: apenas 1 stock na unidade especificada
+        newStocks = [{
+          id: crypto.randomUUID(),
+          itemId: realItemId,  // ✅ Usar ID real do backend
+          unitId: unitId,
+          quantity: quantity,
+          minimumQuantity: itemData.defaultMinimumQuantity || 5,
+          location: location,
+        }];
+      } else {
+        // Material regular: stocks em todas as unidades
+        newStocks = appUnits.map(unit => ({
+          id: crypto.randomUUID(),
+          itemId: realItemId,  // ✅ Usar ID real do backend
+          unitId: unit.id,
+          quantity: unit.id === warehouseId ? quantity : 0,
+          minimumQuantity: itemData.defaultMinimumQuantity || 5,
+          location: unit.id === warehouseId ? location : '',
+        }));
+      }
+      
+      // 3. Salvar todos os stocks no backend
+      for (const stock of newStocks) {
+        await api.unitStocks.create(stock);
+      }
+      
+      // 4. Atualizar stocks no frontend
+      setAppUnitStocks(prev => [...prev, ...newStocks]);
+      
+      return realItemId;
+    } catch (error) {
+      console.error('❌ Erro ao salvar item/stock no backend:', error);
+      // Rollback: remover item temporário do frontend
+      setAppItems(prev => prev.filter(item => item.id !== tempId));
+      throw error;
+    }
   };
 
   const addItem = async (itemData: Omit<Item, 'id'> & { createdAt?: Date; updatedAt?: Date }) => {
@@ -457,7 +535,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } : item
       ));
 
-      console.log('✅ Item criado no backend:', createdItem);
     } catch (error) {
       console.error('❌ Erro ao criar item no backend:', error);
       // Rollback: remove temp item
@@ -501,7 +578,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         throw new Error('Failed to update item in backend');
       }
 
-      console.log('✅ Item atualizado no backend');
     } catch (error) {
       console.error('❌ Erro ao atualizar item no backend:', error);
       // Note: Frontend state is already updated, user can retry or refresh
@@ -526,7 +602,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         s.id === tempId ? createdStock : s
       ));
 
-      console.log('✅ Estoque criado no backend:', createdStock);
     } catch (error) {
       console.error('❌ Erro ao criar estoque no backend:', error);
       // Rollback: remove temp stock
@@ -582,8 +657,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addRequest = async (requestData: Omit<Request, 'id' | 'createdAt'>) => {
-    console.log('🚀 addRequest chamado com:', requestData);
-    
     // Create temporary request in frontend
     const tempId = `req-temp-${Date.now()}`;
     const newRequest: Request = {
@@ -592,11 +665,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createdAt: new Date(),
     };
     setAppRequests(prev => [...prev, newRequest]);
-    console.log('✅ Request temporário criado no frontend:', tempId);
 
     // Save to backend
     try {
-      console.log('💾 Tentando persistir request no backend...');
       // Don't send createdAt - Supabase will auto-generate created_at timestamp
       const createdRequest = await api.requests.create(requestData);
       
@@ -605,7 +676,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         r.id === tempId ? createdRequest : r
       ));
 
-      console.log('✅ Solicitação criada no backend:', createdRequest);
     } catch (error) {
       console.error('❌ Erro ao criar solicitação no backend:', error);
       console.error('❌ Detalhes do erro:', {
@@ -625,12 +695,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       req.id === requestId ? { ...req, ...updates } : req
     ));
 
-    // Save to backend
-    try {
-      await api.requests.update(requestId, updates);
-    } catch (error) {
-      console.error('❌ Erro ao atualizar request no backend:', error);
-      // Note: Frontend state is already updated, user can retry or refresh
+    // Só atualizar no backend se não for um ID temporário
+    if (!requestId.startsWith('req-temp-')) {
+      try {
+        await api.requests.update(requestId, updates);
+      } catch (error) {
+        console.error('❌ Erro ao atualizar request no backend:', error);
+        // Note: Frontend state is already updated, user can retry or refresh
+      }
     }
   };
 
@@ -660,7 +732,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Salvar no backend
     try {
       await api.furnitureRemovalRequests.create(newRequest);
-      console.log('✅ Solicitação de retirada salva no backend:', newRequest.id);
     } catch (error) {
       console.error('❌ Erro ao salvar solicitação de retirada no backend:', error);
     }
@@ -671,12 +742,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       req.id === requestId ? { ...req, ...updates } : req
     ));
     
-    // Atualizar no backend
-    try {
-      await api.furnitureRemovalRequests.update(requestId, updates);
-      console.log('✅ Solicitação de retirada atualizada no backend:', requestId);
-    } catch (error) {
-      console.error('❌ Erro ao atualizar solicitação de retirada no backend:', error);
+    // Só atualizar no backend se não for um ID temporário
+    if (!requestId.startsWith('frr-')) {
+      try {
+        await api.furnitureRemovalRequests.update(requestId, updates);
+      } catch (error) {
+        console.error('❌ Erro ao atualizar solicitação de retirada no backend:', error);
+      }
     }
   };
 
@@ -691,7 +763,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Salvar no backend
     try {
       await api.furnitureRequestsToDesigner.create(newRequest);
-      console.log('✅ Solicitação ao designer salva no backend:', newRequest.id);
     } catch (error) {
       console.error('❌ Erro ao salvar solicitação ao designer no backend:', error);
     }
@@ -702,12 +773,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       req.id === requestId ? { ...req, ...updates } : req
     ));
     
-    // Atualizar no backend
-    try {
-      await api.furnitureRequestsToDesigner.update(requestId, updates);
-      console.log('✅ Solicitação ao designer atualizada no backend:', requestId);
-    } catch (error) {
-      console.error('❌ Erro ao atualizar solicitação ao designer no backend:', error);
+    // Só atualizar no backend se não for um ID temporário
+    if (!requestId.startsWith('frd-')) {
+      try {
+        await api.furnitureRequestsToDesigner.update(requestId, updates);
+      } catch (error) {
+        console.error('❌ Erro ao atualizar solicitação ao designer no backend:', error);
+      }
     }
   };
 
@@ -752,7 +824,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         u.id === tempId ? createdUser.user : u
       ));
 
-      console.log('✅ Usuário criado no backend:', createdUser.user);
     } catch (error) {
       console.error('❌ Erro ao criar usuário no backend:', error);
       // Rollback: remove temp user
@@ -836,13 +907,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const updateUnit = async (unitId: string, updates: Partial<Unit>) => {
+    console.log('🔄 [AppContext.updateUnit] Iniciando atualização:', unitId);
+    console.log('🔄 [AppContext.updateUnit] Updates:', updates);
+    console.log('🔄 [AppContext.updateUnit] Floors:', updates.floors, 'Type:', typeof updates.floors, 'isArray:', Array.isArray(updates.floors));
+    
     setAppUnits(prev => prev.map(unit =>
       unit.id === unitId ? { ...unit, ...updates } : unit
     ));
     
     // Save to backend
     try {
-      await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-46b247d8/units/${unitId}`, {
+      console.log('📤 [AppContext.updateUnit] Enviando para backend...');
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-46b247d8/units/${unitId}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`,
@@ -850,8 +926,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         },
         body: JSON.stringify(updates),
       });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('❌ [AppContext.updateUnit] Erro do backend:', errorData);
+        throw new Error(errorData.error || 'Failed to update unit');
+      }
+      
+      const savedUnit = await response.json();
     } catch (error) {
-      console.error('Error updating unit in backend:', error);
+      console.error('❌ [AppContext.updateUnit] Erro ao atualizar no backend:', error);
+      throw error;
     }
   };
 
@@ -946,8 +1031,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         targetUnitId: batch.targetUnitId,
         driverUserId: batch.driverUserId,
         qrCode: batch.qrCode,
-        createdAt: batch.createdAt.toISOString(),
-        dispatchedAt: batch.dispatchedAt?.toISOString(),
+        createdAt: typeof batch.createdAt === 'string' ? batch.createdAt : batch.createdAt.toISOString(),
+        dispatchedAt: batch.dispatchedAt ? (typeof batch.dispatchedAt === 'string' ? batch.dispatchedAt : batch.dispatchedAt.toISOString()) : undefined,
       });
 
       // Atualizar status do lote localmente
@@ -1046,7 +1131,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         completedAt: new Date().toISOString()
       });
 
-      console.log('✅ Confirmação de recebimento salva no backend:', newConfirmation);
     } catch (error) {
       console.error('❌ Erro ao salvar confirmação no backend:', error);
       // Rollback em caso de erro
@@ -1054,6 +1138,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setAppDeliveryBatches(prev => prev.map(b =>
         b.id === batchId ? { ...b, status: 'pending_confirmation' } : b
       ));
+      throw error;
+    }
+  };
+
+  // Confirmar entrega individual de móvel (motorista)
+  const confirmFurnitureDelivery = async (
+    furnitureRequestId: string,
+    confirmationData: Omit<DeliveryConfirmation, 'id' | 'furnitureRequestId' | 'timestamp'>,
+    receiverDailyCode: string
+  ) => {
+    try {
+      // Validar código diário do recebedor
+      const receiver = getUserByDailyCode(receiverDailyCode);
+      if (!receiver) {
+        throw new Error('Código diário inválido');
+      }
+
+      // Criar confirmação de entrega
+      const newConfirmation: DeliveryConfirmation = {
+        ...confirmationData,
+        id: `conf-${Date.now()}`,
+        furnitureRequestId,
+        receivedByUserId: receiver.id,
+        timestamp: new Date(),
+      };
+
+      // Persistir confirmação no backend
+      const confirmationForBackend = {
+        ...newConfirmation,
+        timestamp: newConfirmation.timestamp.toISOString(),
+      };
+      await api.deliveryConfirmations.create(confirmationForBackend);
+      
+      // Atualizar estado local
+      setAppDeliveryConfirmations(prev => [...prev, newConfirmation]);
+
+      // Atualizar status da solicitação de móvel
+      await updateFurnitureRequestToDesigner(furnitureRequestId, {
+        status: 'completed',
+        deliveredByUserId: confirmationData.confirmedByUserId,
+        deliveredAt: new Date(),
+        receivedByUserId: receiver.id,
+        completedAt: new Date(),
+      });
+
+      console.log('✅ Entrega de móvel confirmada:', furnitureRequestId, 'Recebedor:', receiver.name);
+    } catch (error) {
+      console.error('❌ Erro ao confirmar entrega de móvel:', error);
       throw error;
     }
   };
@@ -1107,6 +1239,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       
       console.log('✅ Almoxarifado ID:', warehouseId);
       
+      // Verificar se há estoque suficiente
+      const warehouseStock = getStockForItem(request.itemId, warehouseId);
+      const availableQuantity = warehouseStock?.quantity || 0;
+      
+      console.log(`📦 Estoque disponível: ${availableQuantity}, Quantidade solicitada: ${request.quantity}`);
+      
+      if (availableQuantity < request.quantity) {
+        console.error(`❌ ESTOQUE INSUFICIENTE! Disponível: ${availableQuantity}, Necessário: ${request.quantity}`);
+        throw new Error(`Estoque insuficiente no almoxarifado. Disponível: ${availableQuantity}, Necessário: ${request.quantity}`);
+      }
+      
       try {
         console.log('📤 Criando movimentação de SAÍDA...');
         await addMovement({
@@ -1155,7 +1298,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         targetUnitId: batch.targetUnitId,
         driverUserId: batch.driverUserId,
         qrCode: batch.qrCode,
-        createdAt: batch.createdAt.toISOString(),
+        createdAt: typeof batch.createdAt === 'string' ? batch.createdAt : batch.createdAt.toISOString(),
       }).catch(error => {
         console.error('❌ Erro ao atualizar status do lote para in_transit:', error);
       });
@@ -1191,6 +1334,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return '';
   };
 
+  const getUserByDailyCode = (code: string): User | undefined => {
+    return appUsers.find(user => isDailyCodeValid(user.id, code));
+  };
+
   const validateUserDailyCode = (userId: string, code: string) => {
     const user = appUsers.find(u => u.id === userId);
     if (user) {
@@ -1217,8 +1364,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         targetUnitId: batch.targetUnitId,
         driverUserId: batch.driverUserId,
         qrCode: batch.qrCode,
-        createdAt: batch.createdAt.toISOString(),
-        dispatchedAt: batch.dispatchedAt?.toISOString(),
+        createdAt: typeof batch.createdAt === 'string' ? batch.createdAt : batch.createdAt.toISOString(),
+        dispatchedAt: batch.dispatchedAt ? (typeof batch.dispatchedAt === 'string' ? batch.dispatchedAt : batch.dispatchedAt.toISOString()) : undefined,
       });
       
       // Atualizar estado local
@@ -1276,9 +1423,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         targetUnitId: batch.targetUnitId,
         driverUserId: batch.driverUserId,
         qrCode: batch.qrCode,
-        createdAt: batch.createdAt.toISOString(),
-        dispatchedAt: batch.dispatchedAt?.toISOString(),
-        deliveryConfirmedAt: batch.deliveryConfirmedAt?.toISOString(),
+        createdAt: typeof batch.createdAt === 'string' ? batch.createdAt : batch.createdAt.toISOString(),
+        dispatchedAt: batch.dispatchedAt ? (typeof batch.dispatchedAt === 'string' ? batch.dispatchedAt : batch.dispatchedAt.toISOString()) : undefined,
+        deliveryConfirmedAt: batch.deliveryConfirmedAt ? (typeof batch.deliveryConfirmedAt === 'string' ? batch.deliveryConfirmedAt : batch.deliveryConfirmedAt.toISOString()) : undefined,
       });
 
       // Atualizar status do lote no estado local
@@ -1441,7 +1588,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         getConfirmationsForBatch,
         separateItemInBatch,
         getUserDailyCode,
+        getUserByDailyCode,
         validateUserDailyCode,
+        confirmFurnitureDelivery,
         markDeliveryAsPendingConfirmation,
         confirmDeliveryByRequester,
       }}

@@ -57,6 +57,21 @@ app.use(
 );
 
 // ========== HELPER FUNCTIONS FOR CASE CONVERSION ==========
+// Parse floors field from database (handles JSON string or array)
+function parseFloors(floors: any): string[] {
+  if (!floors) return [];
+  if (Array.isArray(floors)) return floors;
+  if (typeof floors === 'string') {
+    try {
+      const parsed = JSON.parse(floors);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 // Convert snake_case to camelCase for user objects
 function userDbToApi(user: any) {
   if (!user) return null;
@@ -68,6 +83,7 @@ function userDbToApi(user: any) {
     primaryUnitId: user.primary_unit_id,
     additionalUnitIds: user.additional_unit_ids,
     warehouseType: user.warehouse_type,
+    adminType: user.admin_type,
     jobTitle: user.job_title,
     createdAt: user.created_at,
   };
@@ -82,10 +98,10 @@ app.get("/make-server-46b247d8/health", (c) => {
 app.post("/make-server-46b247d8/init-schema", async (c) => {
   try {
     // Create units table
-    await supabase.rpc('exec_sql', {
+    const { error: unitsError } = await supabase.rpc('exec_sql', {
       sql: `
         CREATE TABLE IF NOT EXISTS units (
-          id TEXT PRIMARY KEY,
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           name TEXT NOT NULL,
           address TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'active',
@@ -93,10 +109,30 @@ app.post("/make-server-46b247d8/init-schema", async (c) => {
           created_at TIMESTAMPTZ DEFAULT NOW()
         );
       `
-    }).catch(() => {
+    });
+    
+    if (unitsError) {
       // If RPC doesn't exist, try direct SQL (may not work in all environments)
       console.log("RPC exec_sql not available, tables may need to be created manually");
+    }
+
+    // Create floors table
+    const { error: floorsError } = await supabase.rpc('exec_sql', {
+      sql: `
+        CREATE TABLE IF NOT EXISTS floors (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          unit_id UUID NOT NULL REFERENCES units(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          "order" INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_floors_unit_id ON floors(unit_id);
+      `
     });
+    
+    if (floorsError) {
+      console.log("Could not create floors table via RPC");
+    }
 
     // Check if floors column exists, if not add it
     const { data: columns } = await supabase
@@ -106,14 +142,28 @@ app.post("/make-server-46b247d8/init-schema", async (c) => {
     
     // If we can query, the table exists
     // Try to add floors column if it doesn't exist (will fail silently if it does)
-    await supabase.rpc('exec_sql', {
+    const { error: alterError } = await supabase.rpc('exec_sql', {
       sql: `
         ALTER TABLE units 
         ADD COLUMN IF NOT EXISTS floors JSONB DEFAULT '[]'::jsonb;
       `
-    }).catch(() => {
-      console.log("Could not add floors column via RPC");
     });
+    
+    if (alterError) {
+      console.log("Could not add floors column via RPC");
+    }
+
+    // Add admin_type column to users table
+    const { error: adminTypeError } = await supabase.rpc('exec_sql', {
+      sql: `
+        ALTER TABLE users 
+        ADD COLUMN IF NOT EXISTS admin_type TEXT;
+      `
+    });
+    
+    if (adminTypeError) {
+      console.log("Could not add admin_type column via RPC (might already exist)");
+    }
 
     return c.json({ 
       message: "Schema initialization attempted",
@@ -335,11 +385,136 @@ app.post("/make-server-46b247d8/migrate-unit-stocks", async (c) => {
   }
 });
 
+/**
+ * POST /migrate-text-to-uuid
+ * Migração para converter colunas id de TEXT para UUID nas tabelas units e floors
+ * 
+ * ATENÇÃO: Esta migração é irreversível e requer que:
+ * 1. Todas as strings de id sejam UUIDs válidos
+ * 2. Não haja foreign keys que impeçam a alteração
+ * 
+ * Esta migração deve ser executada APÓS corrigir todos os IDs não-UUID
+ */
+app.post("/make-server-46b247d8/migrate-text-to-uuid", async (c) => {
+  try {
+    console.log('🔧 Iniciando migração de TEXT para UUID...');
+    
+    // Verificar se todas as units têm IDs em formato UUID
+    const { data: units, error: unitsError } = await supabase
+      .from('units')
+      .select('id, name');
+    
+    if (unitsError) {
+      return c.json({ error: 'Erro ao buscar units', details: unitsError.message }, 500);
+    }
+    
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const invalidUnits = (units || []).filter(unit => !uuidRegex.test(unit.id));
+    
+    if (invalidUnits.length > 0) {
+      return c.json({ 
+        error: 'Algumas units têm IDs que não são UUIDs válidos. Execute a migração de dados primeiro.',
+        invalidUnits: invalidUnits.map(u => ({ id: u.id, name: u.name }))
+      }, 400);
+    }
+    
+    // Verificar floors
+    const { data: floors, error: floorsError } = await supabase
+      .from('floors')
+      .select('id, name, unit_id');
+    
+    if (floorsError) {
+      return c.json({ error: 'Erro ao buscar floors', details: floorsError.message }, 500);
+    }
+    
+    const invalidFloors = (floors || []).filter(floor => 
+      !uuidRegex.test(floor.id) || !uuidRegex.test(floor.unit_id)
+    );
+    
+    if (invalidFloors.length > 0) {
+      return c.json({ 
+        error: 'Alguns floors têm IDs que não são UUIDs válidos. Execute a migração de dados primeiro.',
+        invalidFloors: invalidFloors.map(f => ({ id: f.id, name: f.name, unit_id: f.unit_id }))
+      }, 400);
+    }
+    
+    console.log('✅ Todos os IDs já são UUIDs válidos');
+    console.log('🔄 Alterando tipo das colunas...');
+    
+    // Nota: Esta migração precisa ser executada manualmente no SQL editor do Supabase
+    // porque requer privilégios DDL que não estão disponíveis via RPC
+    
+    const migrationSQL = `
+      -- Converter coluna id da tabela units
+      ALTER TABLE units 
+        ALTER COLUMN id TYPE UUID USING id::uuid;
+      
+      -- Converter coluna id e unit_id da tabela floors
+      ALTER TABLE floors 
+        ALTER COLUMN id TYPE UUID USING id::uuid,
+        ALTER COLUMN unit_id TYPE UUID USING unit_id::uuid;
+      
+      -- Recriar foreign key se necessário
+      -- ALTER TABLE floors DROP CONSTRAINT IF EXISTS floors_unit_id_fkey;
+      -- ALTER TABLE floors ADD CONSTRAINT floors_unit_id_fkey 
+      --   FOREIGN KEY (unit_id) REFERENCES units(id) ON DELETE CASCADE;
+    `;
+    
+    return c.json({ 
+      message: 'Validação concluída com sucesso',
+      note: 'Execute o SQL abaixo manualmente no Supabase SQL Editor',
+      sql: migrationSQL,
+      unitsChecked: units?.length || 0,
+      floorsChecked: floors?.length || 0
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro na migração:', error);
+    return c.json({ error: 'Erro na migração', details: error.message }, 500);
+  }
+});
+
+// Add admin_type column to users table (for existing databases)
+app.post("/make-server-46b247d8/add-admin-type-column", async (c) => {
+  try {
+    console.log('🔧 Adicionando coluna admin_type à tabela users...');
+    
+    // Try using RPC
+    const { error: rpcError } = await supabase.rpc('exec_sql', {
+      sql: `ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_type TEXT;`
+    });
+    
+    if (rpcError) {
+      console.log('RPC não disponível, tentando método alternativo...');
+      
+      // Try alternative: Insert a dummy record to force schema update
+      // This won't work but will help us understand the error
+      return c.json({ 
+        message: 'Por favor, execute o seguinte SQL manualmente no Supabase SQL Editor',
+        sql: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_type TEXT;',
+        note: 'Após executar, a coluna admin_type será adicionada à tabela users'
+      });
+    }
+    
+    return c.json({ 
+      message: 'Coluna admin_type adicionada com sucesso!',
+      sql: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_type TEXT;'
+    });
+  } catch (error) {
+    console.error('❌ Erro ao adicionar coluna:', error);
+    return c.json({ 
+      error: 'Erro ao adicionar coluna',
+      message: 'Por favor, execute o seguinte SQL manualmente no Supabase SQL Editor',
+      sql: 'ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_type TEXT;'
+    }, 500);
+  }
+});
+
 // ========== AUTHENTICATION ==========
 // Sign up - Create new user with Supabase Auth
 app.post("/make-server-46b247d8/auth/signup", async (c) => {
   try {
-    const { email, password, name, role, primaryUnitId, additionalUnitIds, warehouseType, jobTitle } = await c.req.json();
+    const { email, password, name, role, primaryUnitId, additionalUnitIds, warehouseType, adminType, jobTitle } = await c.req.json();
     
     if (!email || !password || !name || !role) {
       return c.json({ error: "Missing required fields" }, 400);
@@ -361,7 +536,7 @@ app.post("/make-server-46b247d8/auth/signup", async (c) => {
       email,
       password,
       email_confirm: true,
-      user_metadata: { name, role, primaryUnitId, additionalUnitIds, warehouseType, jobTitle },
+      user_metadata: { name, role, primaryUnitId, additionalUnitIds, warehouseType, adminType, jobTitle },
     });
 
     if (authError) {
@@ -390,6 +565,7 @@ app.post("/make-server-46b247d8/auth/signup", async (c) => {
           primary_unit_id: primaryUnitId || null,
           additional_unit_ids: additionalUnitIds || null,
           warehouse_type: warehouseType || null,
+          admin_type: adminType || null,
           job_title: jobTitle || null,
         }).select().single();
 
@@ -413,6 +589,7 @@ app.post("/make-server-46b247d8/auth/signup", async (c) => {
       primary_unit_id: primaryUnitId || null,
       additional_unit_ids: additionalUnitIds || null,
       warehouse_type: warehouseType || null,
+      admin_type: adminType || null,
       job_title: jobTitle || null,
     }).select().single();
 
@@ -918,7 +1095,9 @@ app.get("/make-server-46b247d8/users", async (c) => {
 app.post("/make-server-46b247d8/users", async (c) => {
   try {
     const newUser = await c.req.json();
-    const { data, error } = await supabase.from('users').insert(newUser).select().single();
+    // Remove temporary ID from frontend before inserting
+    const { id, ...userData } = newUser;
+    const { data, error } = await supabase.from('users').insert(userData).select().single();
     if (error) throw error;
     return c.json(userDbToApi(data), 201);
   } catch (error) {
@@ -930,7 +1109,7 @@ app.post("/make-server-46b247d8/users", async (c) => {
 app.put("/make-server-46b247d8/users/:id", async (c) => {
   try {
     const id = c.req.param("id");
-    const { name, email, role, primaryUnitId, additionalUnitIds, warehouseType, jobTitle, password } = await c.req.json();
+    const { name, email, role, primaryUnitId, additionalUnitIds, warehouseType, adminType, jobTitle, password } = await c.req.json();
     
     // Prepare updates for public.users table
     const dbUpdates: any = {};
@@ -940,6 +1119,7 @@ app.put("/make-server-46b247d8/users/:id", async (c) => {
     if (primaryUnitId !== undefined) dbUpdates.primary_unit_id = primaryUnitId;
     if (additionalUnitIds !== undefined) dbUpdates.additional_unit_ids = additionalUnitIds;
     if (warehouseType !== undefined) dbUpdates.warehouse_type = warehouseType;
+    if (adminType !== undefined) dbUpdates.admin_type = adminType;
     if (jobTitle !== undefined) dbUpdates.job_title = jobTitle;
     
     // Update public.users table
@@ -963,6 +1143,7 @@ app.put("/make-server-46b247d8/users/:id", async (c) => {
         primaryUnitId: primaryUnitId !== undefined ? primaryUnitId : userData.primary_unit_id,
         additionalUnitIds: additionalUnitIds !== undefined ? additionalUnitIds : userData.additional_unit_ids,
         warehouseType: warehouseType !== undefined ? warehouseType : userData.warehouse_type,
+        adminType: adminType !== undefined ? adminType : userData.admin_type,
         jobTitle: jobTitle || null,
       }
     };
@@ -1117,10 +1298,10 @@ app.get("/make-server-46b247d8/units", async (c) => {
     const { data, error } = await supabase.from('units').select('*');
     if (error) throw error;
     
-    // Ensure floors is always an array
+    // Parse floors (handles JSON string or array)
     const unitsWithFloors = (data || []).map(unit => ({
       ...unit,
-      floors: Array.isArray(unit.floors) ? unit.floors : []
+      floors: parseFloors(unit.floors)
     }));
     
     return c.json(unitsWithFloors);
@@ -1134,19 +1315,22 @@ app.post("/make-server-46b247d8/units", async (c) => {
   try {
     const newUnit = await c.req.json();
     
+    // Remove temporary ID from frontend before inserting
+    const { id, ...unitData } = newUnit;
+    
     // Ensure floors is an array
     const unitToInsert = {
-      ...newUnit,
-      floors: Array.isArray(newUnit.floors) ? newUnit.floors : []
+      ...unitData,
+      floors: Array.isArray(unitData.floors) ? unitData.floors : []
     };
     
     const { data, error } = await supabase.from('units').insert(unitToInsert).select().single();
     if (error) throw error;
     
-    // Ensure response has floors as array
+    // Parse floors from database response
     const responseData = {
       ...data,
-      floors: Array.isArray(data.floors) ? data.floors : []
+      floors: parseFloors(data.floors)
     };
     
     return c.json(responseData, 201);
@@ -1173,12 +1357,13 @@ app.put("/make-server-46b247d8/units/:id", async (c) => {
       .eq('id', id)
       .select()
       .single();
+    
     if (error) throw error;
     
-    // Ensure response has floors as array
+    // Parse floors from database response
     const responseData = {
       ...data,
-      floors: Array.isArray(data.floors) ? data.floors : []
+      floors: parseFloors(data.floors)
     };
     
     return c.json(responseData);
@@ -1203,12 +1388,70 @@ app.get("/make-server-46b247d8/categories", async (c) => {
 app.post("/make-server-46b247d8/categories", async (c) => {
   try {
     const newCategory = await c.req.json();
-    const { data, error } = await supabase.from('categories').insert(newCategory).select().single();
+    // Remove temporary ID from frontend before inserting
+    const { id, ...categoryData } = newCategory;
+    const { data, error } = await supabase.from('categories').insert(categoryData).select().single();
     if (error) throw error;
     return c.json(data, 201);
   } catch (error) {
     console.error("Error creating category:", error);
     return c.json({ error: "Failed to create category" }, 500);
+  }
+});
+
+// ========== FLOORS ==========
+app.get("/make-server-46b247d8/floors", async (c) => {
+  try {
+    const { data, error } = await supabase.from('floors').select('*').order('order', { ascending: true });
+    if (error) throw error;
+    return c.json(data || []);
+  } catch (error) {
+    console.error("Error fetching floors:", error);
+    return c.json({ error: "Failed to fetch floors" }, 500);
+  }
+});
+
+app.post("/make-server-46b247d8/floors", async (c) => {
+  try {
+    const newFloor = await c.req.json();
+    // Remove temporary ID from frontend before inserting
+    const { id, ...floorData } = newFloor;
+    const { data, error } = await supabase.from('floors').insert(floorData).select().single();
+    if (error) throw error;
+    return c.json(data, 201);
+  } catch (error) {
+    console.error("Error creating floor:", error);
+    return c.json({ error: "Failed to create floor", details: error.message }, 500);
+  }
+});
+
+app.put("/make-server-46b247d8/floors/:id", async (c) => {
+  try {
+    const id = c.req.param('id');
+    const updates = await c.req.json();
+    const { data, error } = await supabase
+      .from('floors')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return c.json(data);
+  } catch (error) {
+    console.error("Error updating floor:", error);
+    return c.json({ error: "Failed to update floor" }, 500);
+  }
+});
+
+app.delete("/make-server-46b247d8/floors/:id", async (c) => {
+  try {
+    const id = c.req.param('id');
+    const { error } = await supabase.from('floors').delete().eq('id', id);
+    if (error) throw error;
+    return c.json({ message: "Floor deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting floor:", error);
+    return c.json({ error: "Failed to delete floor" }, 500);
   }
 });
 
@@ -1228,8 +1471,16 @@ app.get("/make-server-46b247d8/items", async (c) => {
 app.post("/make-server-46b247d8/items", async (c) => {
   try {
     const newItem = await c.req.json();
-    const { data, error } = await supabase.from('items').insert(newItem).select().single();
-    if (error) throw error;
+    console.log('📦 POST /items - Item recebido:', JSON.stringify(newItem, null, 2));
+    console.log('📦 Chaves do objeto:', Object.keys(newItem));
+    // Remove temporary ID from frontend before inserting
+    const { id, ...itemData } = newItem;
+    const { data, error } = await supabase.from('items').insert(itemData).select().single();
+    if (error) {
+      console.error("❌ Error creating item:", error);
+      throw error;
+    }
+    console.log('✅ Item criado com sucesso:', data.id);
     return c.json(data, 201);
   } catch (error) {
     console.error("Error creating item:", error);
@@ -1280,18 +1531,34 @@ app.post("/make-server-46b247d8/unit-stocks", async (c) => {
   try {
     const newStock = await c.req.json();
     
-    console.log('📦 Criando novo stock:', newStock);
+    console.log('📦 POST /unit-stocks - Stock recebido:', JSON.stringify(newStock, null, 2));
+    console.log('📦 Chaves do objeto:', Object.keys(newStock));
     
-    // Transformar camelCase para snake_case antes de inserir
+    // ✅ Aceitar tanto camelCase quanto snake_case
+    // Remove temporary ID from frontend before inserting
+    const itemId = newStock.item_id || newStock.itemId;
+    const unitId = newStock.unit_id || newStock.unitId;
+    
+    // Validar campos obrigatórios
+    if (!itemId || itemId === 'undefined' || itemId === 'null') {
+      console.error('❌ item_id inválido:', itemId);
+      throw new Error('item_id é obrigatório e deve ser um UUID válido');
+    }
+    
+    if (!unitId || unitId === 'undefined' || unitId === 'null') {
+      console.error('❌ unit_id inválido:', unitId);
+      throw new Error('unit_id é obrigatório e deve ser um UUID válido');
+    }
+    
     const dbStock = {
-      item_id: newStock.itemId,
-      unit_id: newStock.unitId,
-      quantity: newStock.quantity,
-      minimum_quantity: newStock.minimumQuantity,
-      location: newStock.location,
+      item_id: itemId,
+      unit_id: unitId,
+      quantity: newStock.quantity || 0,
+      minimum_quantity: newStock.minimum_quantity || newStock.minimumQuantity || 0,
+      location: newStock.location || '',
     };
     
-    console.log('📦 Stock no formato DB:', dbStock);
+    console.log('📦 Stock no formato DB (final):', JSON.stringify(dbStock, null, 2));
     
     const { data, error } = await supabase.from('unit_stocks').insert(dbStock).select().single();
     if (error) {
@@ -1326,12 +1593,20 @@ app.put("/make-server-46b247d8/unit-stocks/:id", async (c) => {
     const id = c.req.param("id");
     const updates = await c.req.json();
     
-    // Transformar camelCase para snake_case antes de atualizar
+    // Data is already in snake_case from api.ts toSnakeCase() helper
+    // Accept both formats for compatibility
     const dbUpdates: any = {};
-    if (updates.itemId !== undefined) dbUpdates.item_id = updates.itemId;
-    if (updates.unitId !== undefined) dbUpdates.unit_id = updates.unitId;
+    if (updates.item_id !== undefined) dbUpdates.item_id = updates.item_id;
+    else if (updates.itemId !== undefined) dbUpdates.item_id = updates.itemId;
+    
+    if (updates.unit_id !== undefined) dbUpdates.unit_id = updates.unit_id;
+    else if (updates.unitId !== undefined) dbUpdates.unit_id = updates.unitId;
+    
     if (updates.quantity !== undefined) dbUpdates.quantity = updates.quantity;
-    if (updates.minimumQuantity !== undefined) dbUpdates.minimum_quantity = updates.minimumQuantity;
+    
+    if (updates.minimum_quantity !== undefined) dbUpdates.minimum_quantity = updates.minimum_quantity;
+    else if (updates.minimumQuantity !== undefined) dbUpdates.minimum_quantity = updates.minimumQuantity;
+    
     if (updates.location !== undefined) dbUpdates.location = updates.location;
     
     const { data, error } = await supabase.from('unit_stocks').update(dbUpdates).eq('id', id).select().single();
@@ -1395,11 +1670,12 @@ app.post("/make-server-46b247d8/requests", async (c) => {
     const requestData = await c.req.json();
     console.log("📝 Creating new request - RAW DATA:", JSON.stringify(requestData, null, 2));
     
-    // Transform camelCase to snake_case for database
+    // Data is already in snake_case from api.ts toSnakeCase() helper
+    // Just use it directly, ensuring required fields are present
     const dbRequest = {
-      item_id: requestData.itemId,
-      requesting_unit_id: requestData.requestingUnitId,
-      requested_by_user_id: requestData.requestedByUserId,
+      item_id: requestData.item_id,
+      requesting_unit_id: requestData.requesting_unit_id,
+      requested_by_user_id: requestData.requested_by_user_id,
       quantity: requestData.quantity,
       status: requestData.status || 'pending',
       urgency: requestData.urgency || 'medium',
@@ -1407,7 +1683,7 @@ app.post("/make-server-46b247d8/requests", async (c) => {
       // Don't send created_at or updated_at - database will auto-generate
     };
     
-    console.log("📝 Transformed to snake_case for DB:", JSON.stringify(dbRequest, null, 2));
+    console.log("📝 Prepared for DB insert:", JSON.stringify(dbRequest, null, 2));
     
     const { data, error } = await supabase.from('requests').insert(dbRequest).select().single();
     
@@ -1463,24 +1739,51 @@ app.put("/make-server-46b247d8/requests/:id", async (c) => {
     const id = c.req.param("id");
     const updates = await c.req.json();
     
-    // Transform camelCase to snake_case for database
+    // Data is already in snake_case from api.ts toSnakeCase() helper
+    // Accept both formats for compatibility
     const dbUpdates: any = {};
-    if (updates.itemId !== undefined) dbUpdates.item_id = updates.itemId;
-    if (updates.requestingUnitId !== undefined) dbUpdates.requesting_unit_id = updates.requestingUnitId;
-    if (updates.requestedByUserId !== undefined) dbUpdates.requested_by_user_id = updates.requestedByUserId;
+    
+    // Accept both snake_case (from API) and camelCase (legacy)
+    if (updates.item_id !== undefined) dbUpdates.item_id = updates.item_id;
+    else if (updates.itemId !== undefined) dbUpdates.item_id = updates.itemId;
+    
+    if (updates.requesting_unit_id !== undefined) dbUpdates.requesting_unit_id = updates.requesting_unit_id;
+    else if (updates.requestingUnitId !== undefined) dbUpdates.requesting_unit_id = updates.requestingUnitId;
+    
+    if (updates.requested_by_user_id !== undefined) dbUpdates.requested_by_user_id = updates.requested_by_user_id;
+    else if (updates.requestedByUserId !== undefined) dbUpdates.requested_by_user_id = updates.requestedByUserId;
+    
     if (updates.quantity !== undefined) dbUpdates.quantity = updates.quantity;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
     if (updates.urgency !== undefined) dbUpdates.urgency = updates.urgency;
     if (updates.observations !== undefined) dbUpdates.observations = updates.observations;
-    if (updates.approvedByUserId !== undefined) dbUpdates.approved_by_user_id = updates.approvedByUserId;
-    if (updates.approvedAt !== undefined) dbUpdates.approved_at = updates.approvedAt;
-    if (updates.pickupReadyByUserId !== undefined) dbUpdates.pickup_ready_by_user_id = updates.pickupReadyByUserId;
-    if (updates.pickupReadyAt !== undefined) dbUpdates.pickup_ready_at = updates.pickupReadyAt;
-    if (updates.pickedUpByUserId !== undefined) dbUpdates.picked_up_by_user_id = updates.pickedUpByUserId;
-    if (updates.pickedUpAt !== undefined) dbUpdates.picked_up_at = updates.pickedUpAt;
-    if (updates.completedByUserId !== undefined) dbUpdates.completed_by_user_id = updates.completedByUserId;
-    if (updates.completedAt !== undefined) dbUpdates.completed_at = updates.completedAt;
-    if (updates.rejectedReason !== undefined) dbUpdates.rejected_reason = updates.rejectedReason;
+    
+    if (updates.approved_by_user_id !== undefined) dbUpdates.approved_by_user_id = updates.approved_by_user_id;
+    else if (updates.approvedByUserId !== undefined) dbUpdates.approved_by_user_id = updates.approvedByUserId;
+    
+    if (updates.approved_at !== undefined) dbUpdates.approved_at = updates.approved_at;
+    else if (updates.approvedAt !== undefined) dbUpdates.approved_at = updates.approvedAt;
+    
+    if (updates.pickup_ready_by_user_id !== undefined) dbUpdates.pickup_ready_by_user_id = updates.pickup_ready_by_user_id;
+    else if (updates.pickupReadyByUserId !== undefined) dbUpdates.pickup_ready_by_user_id = updates.pickupReadyByUserId;
+    
+    if (updates.pickup_ready_at !== undefined) dbUpdates.pickup_ready_at = updates.pickup_ready_at;
+    else if (updates.pickupReadyAt !== undefined) dbUpdates.pickup_ready_at = updates.pickupReadyAt;
+    
+    if (updates.picked_up_by_user_id !== undefined) dbUpdates.picked_up_by_user_id = updates.picked_up_by_user_id;
+    else if (updates.pickedUpByUserId !== undefined) dbUpdates.picked_up_by_user_id = updates.pickedUpByUserId;
+    
+    if (updates.picked_up_at !== undefined) dbUpdates.picked_up_at = updates.picked_up_at;
+    else if (updates.pickedUpAt !== undefined) dbUpdates.picked_up_at = updates.pickedUpAt;
+    
+    if (updates.completed_by_user_id !== undefined) dbUpdates.completed_by_user_id = updates.completed_by_user_id;
+    else if (updates.completedByUserId !== undefined) dbUpdates.completed_by_user_id = updates.completedByUserId;
+    
+    if (updates.completed_at !== undefined) dbUpdates.completed_at = updates.completed_at;
+    else if (updates.completedAt !== undefined) dbUpdates.completed_at = updates.completedAt;
+    
+    if (updates.rejected_reason !== undefined) dbUpdates.rejected_reason = updates.rejected_reason;
+    else if (updates.rejectedReason !== undefined) dbUpdates.rejected_reason = updates.rejectedReason;
     
     const { data, error } = await supabase.from('requests').update(dbUpdates).eq('id', id).select().single();
     if (error) throw error;
@@ -1563,12 +1866,28 @@ app.post("/make-server-46b247d8/movements", async (c) => {
     const newMovement = await c.req.json();
     console.log('📥 Recebido movimento:', JSON.stringify(newMovement, null, 2));
     
+    // Data is already in snake_case from api.ts toSnakeCase() helper
+    const itemId = newMovement.item_id;
+    const unitId = newMovement.unit_id;
+    const userId = newMovement.user_id;
+    
+    // Validar campos obrigatórios
+    if (!itemId || itemId === 'undefined' || itemId === 'null') {
+      console.error('❌ item_id inválido:', itemId);
+      return c.json({ error: 'item_id é obrigatório e deve ser um UUID válido' }, 400);
+    }
+    
+    if (!unitId || unitId === 'undefined' || unitId === 'null') {
+      console.error('❌ unit_id inválido:', unitId);
+      return c.json({ error: 'unit_id é obrigatório e deve ser um UUID válido' }, 400);
+    }
+    
     // 1. Verificar se existe unit_stock para este item+unidade
     let { data: existingStock, error: findError } = await supabase
       .from('unit_stocks')
       .select('*')
-      .eq('item_id', newMovement.itemId)
-      .eq('unit_id', newMovement.unitId)
+      .eq('item_id', itemId)
+      .eq('unit_id', unitId)
       .maybeSingle();
     
     if (findError) {
@@ -1577,11 +1896,12 @@ app.post("/make-server-46b247d8/movements", async (c) => {
     
     // 2. Se não existir, criar com quantidade 0
     if (!existingStock) {
+      console.log('📦 Criando novo stock para item_id:', itemId, 'unit_id:', unitId);
       const { data: newStock, error: createStockError } = await supabase
         .from('unit_stocks')
         .insert({
-          item_id: newMovement.itemId,
-          unit_id: newMovement.unitId,
+          item_id: itemId,
+          unit_id: unitId,
           quantity: 0,
           minimum_quantity: 0,
           location: ''
@@ -1595,6 +1915,7 @@ app.post("/make-server-46b247d8/movements", async (c) => {
       }
       
       existingStock = newStock;
+      console.log('✅ Stock criado com sucesso');
     }
     
     // 3. Calcular nova quantidade
@@ -1625,8 +1946,8 @@ app.post("/make-server-46b247d8/movements", async (c) => {
     const { error: updateError, data: updatedStock } = await supabase
       .from('unit_stocks')
       .update({ quantity: newQuantity })
-      .eq('item_id', newMovement.itemId)
-      .eq('unit_id', newMovement.unitId)
+      .eq('item_id', itemId)
+      .eq('unit_id', unitId)
       .select()
       .single();
     
@@ -1640,9 +1961,9 @@ app.post("/make-server-46b247d8/movements", async (c) => {
     // 5. Criar o movimento
     const dbMovement = {
       type: newMovement.type,
-      item_id: newMovement.itemId,
-      unit_id: newMovement.unitId,
-      user_id: newMovement.userId,
+      item_id: itemId,
+      unit_id: unitId,
+      user_id: userId,
       quantity: newMovement.quantity,
       timestamp: newMovement.timestamp || new Date().toISOString(),
       notes: newMovement.notes || null,
@@ -1679,7 +2000,23 @@ app.get("/make-server-46b247d8/loans", async (c) => {
   try {
     const { data, error } = await supabase.from('loans').select('*');
     if (error) throw error;
-    return c.json(data || []);
+    
+    // Transform snake_case to camelCase
+    const transformedData = (data || []).map(loan => ({
+      id: loan.id,
+      itemId: loan.item_id,
+      unitId: loan.unit_id,
+      responsibleUserId: loan.responsible_user_id,
+      withdrawalDate: loan.withdrawal_date,
+      expectedReturnDate: loan.expected_return_date,
+      returnDate: loan.return_date,
+      status: loan.status,
+      observations: loan.observations,
+      serialNumber: loan.serial_number,
+      quantity: loan.quantity,
+    }));
+    
+    return c.json(transformedData);
   } catch (error) {
     console.error("Error fetching loans:", error);
     return c.json({ error: "Failed to fetch loans" }, 500);
@@ -1689,12 +2026,83 @@ app.get("/make-server-46b247d8/loans", async (c) => {
 app.post("/make-server-46b247d8/loans", async (c) => {
   try {
     const newLoan = await c.req.json();
-    const { data, error } = await supabase.from('loans').insert(newLoan).select().single();
-    if (error) throw error;
-    return c.json(data, 201);
+    console.log("📝 Creating loan with data:", JSON.stringify(newLoan, null, 2));
+    
+    // Accept both camelCase and snake_case
+    const itemId = newLoan.itemId || newLoan.item_id;
+    const unitId = newLoan.unitId || newLoan.unit_id;
+    const responsibleUserId = newLoan.responsibleUserId || newLoan.responsible_user_id;
+    const withdrawalDate = newLoan.withdrawalDate || newLoan.withdrawal_date;
+    const expectedReturnDate = newLoan.expectedReturnDate || newLoan.expected_return_date;
+    const returnDate = newLoan.returnDate || newLoan.return_date;
+    const serialNumber = newLoan.serialNumber || newLoan.serial_number;
+    const quantity = newLoan.quantity;
+    
+    // Validate required fields
+    if (!itemId) {
+      console.error("❌ Missing item_id in loan data");
+      return c.json({ error: "item_id is required" }, 400);
+    }
+    if (!unitId) {
+      console.error("❌ Missing unit_id in loan data");
+      return c.json({ error: "unit_id is required" }, 400);
+    }
+    if (!responsibleUserId) {
+      console.error("❌ Missing responsible_user_id in loan data");
+      return c.json({ error: "responsible_user_id is required" }, 400);
+    }
+    
+    // Convert to snake_case for Postgres
+    const dbLoan = {
+      item_id: itemId,
+      unit_id: unitId,
+      responsible_user_id: responsibleUserId,
+      withdrawal_date: withdrawalDate,
+      expected_return_date: expectedReturnDate,
+      return_date: returnDate || null,
+      status: newLoan.status,
+      observations: newLoan.observations || null,
+      serial_number: serialNumber || null,
+      quantity: quantity || 1,
+    };
+    
+    console.log("📝 DB loan (snake_case):", JSON.stringify(dbLoan, null, 2));
+    
+    const { data, error } = await supabase.from('loans').insert(dbLoan).select().single();
+    if (error) {
+      console.error("❌ Supabase error creating loan:", error);
+      return c.json({ 
+        error: "Failed to create loan",
+        details: error.message,
+        code: error.code
+      }, 500);
+    }
+    
+    console.log("✅ Loan created successfully:", data);
+    
+    // Convert snake_case back to camelCase for response
+    const responseLoan = {
+      id: data.id,
+      itemId: data.item_id,
+      unitId: data.unit_id,
+      responsibleUserId: data.responsible_user_id,
+      withdrawalDate: data.withdrawal_date,
+      expectedReturnDate: data.expected_return_date,
+      returnDate: data.return_date,
+      status: data.status,
+      observations: data.observations,
+      serialNumber: data.serial_number,
+      quantity: data.quantity,
+    };
+    
+    return c.json(responseLoan, 201);
   } catch (error) {
-    console.error("Error creating loan:", error);
-    return c.json({ error: "Failed to create loan" }, 500);
+    console.error("❌ Error creating loan:", error);
+    console.error("❌ Error details:", JSON.stringify(error, null, 2));
+    return c.json({ 
+      error: "Failed to create loan",
+      details: error instanceof Error ? error.message : String(error)
+    }, 500);
   }
 });
 
@@ -1702,12 +2110,53 @@ app.put("/make-server-46b247d8/loans/:id", async (c) => {
   try {
     const id = c.req.param("id");
     const updates = await c.req.json();
-    const { data, error } = await supabase.from('loans').update(updates).eq('id', id).select().single();
-    if (error) throw error;
-    return c.json(data);
+    
+    console.log("📝 Updating loan with data:", JSON.stringify(updates, null, 2));
+    
+    // Accept both camelCase and snake_case
+    const dbUpdates: any = {};
+    
+    if (updates.status !== undefined) dbUpdates.status = updates.status;
+    if (updates.returnDate !== undefined || updates.return_date !== undefined) {
+      dbUpdates.return_date = updates.returnDate || updates.return_date;
+    }
+    if (updates.observations !== undefined) dbUpdates.observations = updates.observations;
+    if (updates.expectedReturnDate !== undefined || updates.expected_return_date !== undefined) {
+      dbUpdates.expected_return_date = updates.expectedReturnDate || updates.expected_return_date;
+    }
+    
+    console.log("📝 DB updates (snake_case):", JSON.stringify(dbUpdates, null, 2));
+    
+    const { data, error } = await supabase.from('loans').update(dbUpdates).eq('id', id).select().single();
+    if (error) {
+      console.error("❌ Supabase error updating loan:", error);
+      throw error;
+    }
+    
+    console.log("✅ Loan updated successfully:", data);
+    
+    // Convert snake_case back to camelCase for response
+    const responseLoan = {
+      id: data.id,
+      itemId: data.item_id,
+      unitId: data.unit_id,
+      responsibleUserId: data.responsible_user_id,
+      withdrawalDate: data.withdrawal_date,
+      expectedReturnDate: data.expected_return_date,
+      returnDate: data.return_date,
+      status: data.status,
+      observations: data.observations,
+      serialNumber: data.serial_number,
+      quantity: data.quantity,
+    };
+    
+    return c.json(responseLoan);
   } catch (error) {
-    console.error("Error updating loan:", error);
-    return c.json({ error: "Failed to update loan" }, 500);
+    console.error("❌ Error updating loan:", error);
+    return c.json({ 
+      error: "Failed to update loan",
+      details: error instanceof Error ? error.message : String(error)
+    }, 500);
   }
 });
 
@@ -1726,7 +2175,9 @@ app.get("/make-server-46b247d8/furniture-transfers", async (c) => {
 app.post("/make-server-46b247d8/furniture-transfers", async (c) => {
   try {
     const newTransfer = await c.req.json();
-    const { data, error } = await supabase.from('furniture_transfers').insert(newTransfer).select().single();
+    // Remove temporary ID from frontend before inserting
+    const { id, ...transferData } = newTransfer;
+    const { data, error } = await supabase.from('furniture_transfers').insert(transferData).select().single();
     if (error) throw error;
     return c.json(data, 201);
   } catch (error) {
@@ -1763,7 +2214,9 @@ app.get("/make-server-46b247d8/furniture-removal-requests", async (c) => {
 app.post("/make-server-46b247d8/furniture-removal-requests", async (c) => {
   try {
     const newRequest = await c.req.json();
-    const { data, error } = await supabase.from('furniture_removal_requests').insert(newRequest).select().single();
+    // Remove temporary ID from frontend before inserting
+    const { id, ...requestData } = newRequest;
+    const { data, error } = await supabase.from('furniture_removal_requests').insert(requestData).select().single();
     if (error) throw error;
     return c.json(data, 201);
   } catch (error) {
@@ -1800,8 +2253,36 @@ app.get("/make-server-46b247d8/furniture-requests-to-designer", async (c) => {
 app.post("/make-server-46b247d8/furniture-requests-to-designer", async (c) => {
   try {
     const newRequest = await c.req.json();
-    const { data, error } = await supabase.from('furniture_requests_to_designer').insert(newRequest).select().single();
-    if (error) throw error;
+    console.log('📥 Creating furniture request to designer - RAW DATA:', JSON.stringify(newRequest, null, 2));
+    
+    // Remove temporary ID from frontend before inserting
+    const { id, ...requestData } = newRequest;
+    
+    // Data may come in camelCase from frontend, convert to snake_case
+    const dbRequest: any = {
+      item_id: requestData.item_id || requestData.itemId,
+      requesting_unit_id: requestData.requesting_unit_id || requestData.requestingUnitId,
+      requested_by_user_id: requestData.requested_by_user_id || requestData.requestedByUserId,
+      quantity: requestData.quantity,
+      location: requestData.location,
+      justification: requestData.justification,
+      status: requestData.status || 'pending_designer',
+      observations: requestData.observations
+    };
+    
+    // Remove undefined values
+    Object.keys(dbRequest).forEach(key => {
+      if (dbRequest[key] === undefined) delete dbRequest[key];
+    });
+    
+    console.log('💾 Inserting into DB:', JSON.stringify(dbRequest, null, 2));
+    
+    const { data, error } = await supabase.from('furniture_requests_to_designer').insert(dbRequest).select().single();
+    if (error) {
+      console.error('❌ Database error:', error);
+      throw error;
+    }
+    console.log('✅ Created successfully:', data);
     return c.json(data, 201);
   } catch (error) {
     console.error("Error creating furniture request to designer:", error);
@@ -1813,7 +2294,84 @@ app.put("/make-server-46b247d8/furniture-requests-to-designer/:id", async (c) =>
   try {
     const id = c.req.param("id");
     const updates = await c.req.json();
-    const { data, error } = await supabase.from('furniture_requests_to_designer').update(updates).eq('id', id).select().single();
+    
+    // Data may come in camelCase from frontend, convert to snake_case
+    // Accept both formats for compatibility
+    const dbUpdates: any = {};
+    
+    // Basic fields
+    if (updates.item_id !== undefined) dbUpdates.item_id = updates.item_id;
+    else if (updates.itemId !== undefined) dbUpdates.item_id = updates.itemId;
+    
+    if (updates.requesting_unit_id !== undefined) dbUpdates.requesting_unit_id = updates.requesting_unit_id;
+    else if (updates.requestingUnitId !== undefined) dbUpdates.requesting_unit_id = updates.requestingUnitId;
+    
+    if (updates.requested_by_user_id !== undefined) dbUpdates.requested_by_user_id = updates.requested_by_user_id;
+    else if (updates.requestedByUserId !== undefined) dbUpdates.requested_by_user_id = updates.requestedByUserId;
+    
+    if (updates.quantity !== undefined) dbUpdates.quantity = updates.quantity;
+    if (updates.location !== undefined) dbUpdates.location = updates.location;
+    if (updates.justification !== undefined) dbUpdates.justification = updates.justification;
+    if (updates.status !== undefined) dbUpdates.status = updates.status;
+    
+    // Gerar QR Code único quando status mudar para in_transit
+    if (updates.status === 'in_transit' || updates.qr_code !== undefined || updates.qrCode !== undefined) {
+      if (updates.qr_code !== undefined) dbUpdates.qr_code = updates.qr_code;
+      else if (updates.qrCode !== undefined) dbUpdates.qr_code = updates.qrCode;
+      else if (updates.status === 'in_transit') {
+        // Gerar QR Code se não foi fornecido
+        dbUpdates.qr_code = `FUR-${Date.now().toString().slice(-6)}`;
+      }
+    }
+    
+    // Designer review fields
+    if (updates.reviewed_by_designer_id !== undefined) dbUpdates.reviewed_by_designer_id = updates.reviewed_by_designer_id;
+    else if (updates.reviewedByDesignerId !== undefined) dbUpdates.reviewed_by_designer_id = updates.reviewedByDesignerId;
+    
+    if (updates.reviewed_at !== undefined) dbUpdates.reviewed_at = updates.reviewed_at instanceof Date ? updates.reviewed_at.toISOString() : updates.reviewed_at;
+    else if (updates.reviewedAt !== undefined) dbUpdates.reviewed_at = updates.reviewedAt instanceof Date ? updates.reviewedAt.toISOString() : updates.reviewedAt;
+    
+    // Storage approval fields
+    if (updates.approved_by_storage_user_id !== undefined) dbUpdates.approved_by_storage_user_id = updates.approved_by_storage_user_id;
+    else if (updates.approvedByStorageUserId !== undefined) dbUpdates.approved_by_storage_user_id = updates.approvedByStorageUserId;
+    
+    if (updates.approved_by_storage_at !== undefined) dbUpdates.approved_by_storage_at = updates.approved_by_storage_at instanceof Date ? updates.approved_by_storage_at.toISOString() : updates.approved_by_storage_at;
+    else if (updates.approvedByStorageAt !== undefined) dbUpdates.approved_by_storage_at = updates.approvedByStorageAt instanceof Date ? updates.approvedByStorageAt.toISOString() : updates.approvedByStorageAt;
+    
+    // Separation fields
+    if (updates.separated_by_user_id !== undefined) dbUpdates.separated_by_user_id = updates.separated_by_user_id;
+    else if (updates.separatedByUserId !== undefined) dbUpdates.separated_by_user_id = updates.separatedByUserId;
+    
+    if (updates.separated_at !== undefined) dbUpdates.separated_at = updates.separated_at instanceof Date ? updates.separated_at.toISOString() : updates.separated_at;
+    else if (updates.separatedAt !== undefined) dbUpdates.separated_at = updates.separatedAt instanceof Date ? updates.separatedAt.toISOString() : updates.separatedAt;
+    
+    // Warehouse assignment fields
+    if (updates.assigned_to_warehouse_user_id !== undefined) dbUpdates.assigned_to_warehouse_user_id = updates.assigned_to_warehouse_user_id;
+    else if (updates.assignedToWarehouseUserId !== undefined) dbUpdates.assigned_to_warehouse_user_id = updates.assignedToWarehouseUserId;
+    
+    if (updates.assigned_at !== undefined) dbUpdates.assigned_at = updates.assigned_at instanceof Date ? updates.assigned_at.toISOString() : updates.assigned_at;
+    else if (updates.assignedAt !== undefined) dbUpdates.assigned_at = updates.assignedAt instanceof Date ? updates.assignedAt.toISOString() : updates.assignedAt;
+    
+    // Delivery fields
+    if (updates.delivered_by_user_id !== undefined) dbUpdates.delivered_by_user_id = updates.delivered_by_user_id;
+    else if (updates.deliveredByUserId !== undefined) dbUpdates.delivered_by_user_id = updates.deliveredByUserId;
+    
+    if (updates.delivered_at !== undefined) dbUpdates.delivered_at = updates.delivered_at instanceof Date ? updates.delivered_at.toISOString() : updates.delivered_at;
+    else if (updates.deliveredAt !== undefined) dbUpdates.delivered_at = updates.deliveredAt instanceof Date ? updates.deliveredAt.toISOString() : updates.deliveredAt;
+    
+    // Completion field
+    if (updates.completed_at !== undefined) dbUpdates.completed_at = updates.completed_at instanceof Date ? updates.completed_at.toISOString() : updates.completed_at;
+    else if (updates.completedAt !== undefined) dbUpdates.completed_at = updates.completedAt instanceof Date ? updates.completedAt.toISOString() : updates.completedAt;
+    
+    // Additional fields
+    if (updates.rejection_reason !== undefined) dbUpdates.rejection_reason = updates.rejection_reason;
+    else if (updates.rejectionReason !== undefined) dbUpdates.rejection_reason = updates.rejectionReason;
+    
+    if (updates.observations !== undefined) dbUpdates.observations = updates.observations;
+    
+    console.log('🔄 Updating furniture request to designer:', id, 'with:', dbUpdates);
+    
+    const { data, error } = await supabase.from('furniture_requests_to_designer').update(dbUpdates).eq('id', id).select().single();
     if (error) throw error;
     return c.json(data);
   } catch (error) {
@@ -1837,7 +2395,9 @@ app.get("/make-server-46b247d8/individual-items", async (c) => {
 app.post("/make-server-46b247d8/individual-items", async (c) => {
   try {
     const newItem = await c.req.json();
-    const { data, error } = await supabase.from('unique_product_instances').insert(newItem).select().single();
+    // Remove temporary ID from frontend before inserting
+    const { id, ...itemData } = newItem;
+    const { data, error } = await supabase.from('unique_product_instances').insert(itemData).select().single();
     if (error) throw error;
     return c.json(data, 201);
   } catch (error) {
@@ -1895,29 +2455,54 @@ app.get("/make-server-46b247d8/delivery-batches", async (c) => {
 app.post("/make-server-46b247d8/delivery-batches", async (c) => {
   try {
     const body = await c.req.json();
+    console.log('📦 Recebido delivery batch:', JSON.stringify(body, null, 2));
+    
+    // Data comes in snake_case from api.ts
+    const requestIds = body.request_ids || [];
+    const furnitureRequestIds = body.furniture_request_ids || [];
+    const targetUnitId = body.target_unit_id;
+    const driverUserId = body.driver_user_id;
+    const qrCode = body.qr_code;
+    
+    // Validar campos obrigatórios
+    if (!targetUnitId || targetUnitId === 'undefined' || targetUnitId === 'null') {
+      console.error('❌ target_unit_id inválido:', targetUnitId);
+      return c.json({ error: 'target_unit_id é obrigatório e deve ser um UUID válido' }, 400);
+    }
+    
+    if (!driverUserId || driverUserId === 'undefined' || driverUserId === 'null') {
+      console.error('❌ driver_user_id inválido:', driverUserId);
+      return c.json({ error: 'driver_user_id é obrigatório e deve ser um UUID válido' }, 400);
+    }
+    
+    // 🔧 GERAR ID MANUALMENTE ao invés de depender do banco
+    const batchId = crypto.randomUUID();
     
     const { data, error } = await supabase
       .from("delivery_batches")
       .insert({
-        id: body.id,
-        request_ids: body.requestIds,
-        furniture_request_ids: body.furnitureRequestIds || [],
-        target_unit_id: body.targetUnitId,
-        driver_user_id: body.driverUserId,
-        qr_code: body.qrCode,
+        id: batchId,
+        request_ids: requestIds,
+        furniture_request_ids: furnitureRequestIds,
+        target_unit_id: targetUnitId,
+        driver_user_id: driverUserId,
+        qr_code: qrCode || `BATCH-${Date.now()}`,
         status: body.status || 'pending',
-        created_at: body.createdAt || new Date().toISOString(),
-        notes: body.notes,
+        notes: body.notes || null,
       })
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ Erro ao criar delivery batch:', error);
+      throw error;
+    }
     
+    console.log('✅ Delivery batch criado:', data.id);
     return c.json(data);
   } catch (error) {
     console.error("Error creating delivery batch:", error);
-    return c.json({ error: "Failed to create delivery batch" }, 500);
+    return c.json({ error: "Failed to create delivery batch", details: error }, 500);
   }
 });
 
@@ -2008,7 +2593,9 @@ app.get("/make-server-46b247d8/delivery-confirmations", async (c) => {
     const confirmations = data.map(conf => ({
       ...conf,
       batchId: conf.batch_id,
+      furnitureRequestId: conf.furniture_request_id,
       confirmedByUserId: conf.confirmed_by_user_id,
+      receivedByUserId: conf.received_by_user_id,
       photoUrl: conf.photo_url,
       timestamp: new Date(conf.timestamp),
       location: conf.location ? JSON.parse(conf.location) : undefined,
@@ -2025,20 +2612,38 @@ app.post("/make-server-46b247d8/delivery-confirmations", async (c) => {
   try {
     const body = await c.req.json();
     
-    console.log('📦 Criando confirmação de entrega:', body);
+    console.log('📦 Criando confirmação de entrega:', JSON.stringify(body, null, 2));
+    
+    // Data comes in snake_case from api.ts
+    const batchId = body.batch_id;
+    const furnitureRequestId = body.furniture_request_id;
+    const confirmedByUserId = body.confirmed_by_user_id;
+    const receivedByUserId = body.received_by_user_id;
+    
+    // Validar campos obrigatórios - precisa ter batch_id OU furniture_request_id
+    if ((!batchId || batchId === 'undefined' || batchId === 'null') && 
+        (!furnitureRequestId || furnitureRequestId === 'undefined' || furnitureRequestId === 'null')) {
+      console.error('❌ batch_id ou furniture_request_id é obrigatório');
+      return c.json({ error: 'batch_id ou furniture_request_id é obrigatório' }, 400);
+    }
+    
+    // 🔧 GERAR ID MANUALMENTE ao invés de depender do banco
+    const confirmationId = crypto.randomUUID();
     
     const { data, error } = await supabase
       .from("delivery_confirmations")
       .insert({
-        id: body.id,
-        batch_id: body.batchId,
-        type: body.type,
-        confirmed_by_user_id: body.confirmedByUserId,
-        photo_url: body.photoUrl || '',
+        id: confirmationId,
+        batch_id: batchId || null,
+        furniture_request_id: furnitureRequestId || null,
+        type: body.type || 'receipt',
+        confirmed_by_user_id: confirmedByUserId || null,
+        received_by_user_id: receivedByUserId || null,
+        photo_url: body.photo_url || '',
         timestamp: body.timestamp || new Date().toISOString(),
         location: body.location ? JSON.stringify(body.location) : null,
-        signature: body.signature,
-        notes: body.notes,
+        signature: body.signature || null,
+        notes: body.notes || null,
       })
       .select()
       .single();
@@ -2054,6 +2659,78 @@ app.post("/make-server-46b247d8/delivery-confirmations", async (c) => {
     console.error("❌ Error creating delivery confirmation:", error);
     return c.json({ 
       error: "Failed to create delivery confirmation", 
+      details: error.message || error 
+    }, 500);
+  }
+});
+
+// ========== FIX DELIVERY TABLES SCHEMA ==========
+app.post("/make-server-46b247d8/fix-delivery-tables", async (c) => {
+  try {
+    console.log('🔧 Gerando SQL para corrigir tabelas de delivery...');
+    
+    const sqlToRun = `-- Corrigir tabelas delivery_batches e delivery_confirmations
+-- Execute este SQL no Supabase Dashboard > SQL Editor
+
+-- Adicionar DEFAULT gen_random_uuid() nas colunas id
+ALTER TABLE delivery_batches 
+  ALTER COLUMN id SET DEFAULT gen_random_uuid();
+
+ALTER TABLE delivery_confirmations 
+  ALTER COLUMN id SET DEFAULT gen_random_uuid();
+
+-- Se as tabelas não existem, criar do zero:
+CREATE TABLE IF NOT EXISTS delivery_batches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_ids UUID[] DEFAULT '{}',
+  furniture_request_ids UUID[] DEFAULT '{}',
+  target_unit_id UUID NOT NULL,
+  driver_user_id UUID,
+  qr_code TEXT UNIQUE,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  dispatched_at TIMESTAMPTZ,
+  delivery_confirmed_at TIMESTAMPTZ,
+  received_confirmed_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  confirmed_by_requester_at TIMESTAMPTZ,
+  notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS delivery_confirmations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  batch_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  confirmed_by_user_id UUID,
+  photo_url TEXT,
+  timestamp TIMESTAMPTZ DEFAULT NOW(),
+  location JSONB,
+  signature TEXT,
+  notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_delivery_batches_status ON delivery_batches(status);
+CREATE INDEX IF NOT EXISTS idx_delivery_batches_target_unit ON delivery_batches(target_unit_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_confirmations_batch ON delivery_confirmations(batch_id);`;
+    
+    console.log('📋 SQL gerado com sucesso');
+    
+    return c.json({
+      message: '⚠️ AÇÃO MANUAL NECESSÁRIA - Execute o SQL no Supabase Dashboard',
+      sqlToExecute: sqlToRun,
+      instructions: [
+        '1. Copie o SQL retornado em "sqlToExecute"',
+        '2. Vá para Supabase Dashboard > SQL Editor',
+        '3. Cole e execute o SQL',
+        '4. As tabelas delivery_batches e delivery_confirmations terão o DEFAULT corrigido',
+        '5. Tente criar novos lotes/confirmações novamente'
+      ],
+      reason: 'As colunas id nas tabelas delivery_batches e delivery_confirmations não têm DEFAULT gen_random_uuid(), causando erro de constraint violation'
+    });
+  } catch (error) {
+    console.error('Erro ao gerar SQL de correção:', error);
+    return c.json({ 
+      error: 'Falha ao gerar SQL de correção', 
       details: error.message || error 
     }, 500);
   }
@@ -2121,6 +2798,26 @@ app.post("/make-server-46b247d8/upload-image", async (c) => {
   } catch (error) {
     console.error('Error in upload-image:', error);
     return c.json({ error: 'Failed to upload image' }, 500);
+  }
+});
+
+// ========== DEVELOPER DIAGNOSTICS ==========
+app.get("/make-server-46b247d8/developer/check-furniture-table", async (c) => {
+  try {
+    // Get sample data to see actual structure
+    const { data: sampleData, error: sampleError } = await supabase
+      .from('furniture_requests_to_designer')
+      .select('*')
+      .limit(1);
+    
+    return c.json({ 
+      sampleData: sampleData || [],
+      sampleError: sampleError?.message,
+      hint: 'Check if table exists and what data it contains'
+    });
+  } catch (error) {
+    console.error("Error checking furniture table:", error);
+    return c.json({ error: String(error) }, 500);
   }
 });
 

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
-import { AlertCircle, CheckCircle, Sofa, XCircle, Building2, MapPin, Clock, User } from 'lucide-react';
+import { AlertCircle, CheckCircle, Sofa, XCircle, Building2, MapPin, Clock, User, ChevronDown, ChevronUp } from 'lucide-react';
 import { Alert, AlertDescription } from './ui/alert';
 import {
   Dialog,
@@ -16,6 +16,11 @@ import {
 } from './ui/dialog';
 import { Label } from './ui/label';
 import { toast } from 'sonner@2.0.3';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from './ui/collapsible';
 
 export function FurnitureRequestsPanel() {
   const { currentUser, furnitureRequestsToDesigner, updateFurnitureRequestToDesigner, getItemById, getUnitById, getUserById } = useApp();
@@ -26,24 +31,20 @@ export function FurnitureRequestsPanel() {
   });
   const [rejectionReason, setRejectionReason] = useState('');
   const [observations, setObservations] = useState('');
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   const { pendingRequests, approvedRequests, completedRequests } = useMemo(() => {
     const pending = furnitureRequestsToDesigner.filter(r => r.status === 'pending_designer');
     const approved = furnitureRequestsToDesigner.filter(r => 
       r.status === 'approved_designer' || 
-      r.status === 'awaiting_delivery' || 
+      r.status === 'approved_storage' ||
       r.status === 'in_transit'
     );
     const completed = furnitureRequestsToDesigner.filter(r => 
       r.status === 'completed' || 
       r.status === 'rejected'
     );
-
-    return {
-      pendingRequests: pending,
-      approvedRequests: approved,
-      completedRequests: completed,
-    };
+    return { pendingRequests: pending, approvedRequests: approved, completedRequests: completed };
   }, [furnitureRequestsToDesigner]);
 
   const handleReview = () => {
@@ -66,7 +67,7 @@ export function FurnitureRequestsPanel() {
       updates.observations = observations.trim() || undefined;
       
       toast.success('Solicitação aprovada!', {
-        description: 'O almoxarifado foi notificado para realizar a entrega.'
+        description: 'Enviado para aprovação do almoxarifado storage'
       });
     } else {
       updates.status = 'rejected';
@@ -90,7 +91,7 @@ export function FurnitureRequestsPanel() {
         return <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">Aguardando Análise</Badge>;
       case 'approved_designer':
         return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">Aprovado</Badge>;
-      case 'awaiting_delivery':
+      case 'approved_storage':
         return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">Aguardando Entrega</Badge>;
       case 'in_transit':
         return <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">Em Trânsito</Badge>;
@@ -264,21 +265,35 @@ export function FurnitureRequestsPanel() {
 
         {/* Completed/Rejected Requests */}
         {completedRequests.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base md:text-lg">Histórico</CardTitle>
-              <CardDescription className="text-xs md:text-sm">
-                Solicitações concluídas ou rejeitadas
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-3">
-                {completedRequests.slice(0, 5).map(request => (
-                  <RequestCard key={request.id} request={request} />
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          <Collapsible open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
+            <Card>
+              <CardHeader>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" className="w-full flex items-center justify-between p-0 hover:bg-transparent">
+                    <div className="text-left">
+                      <CardTitle className="text-base md:text-lg text-[18px] flex items-center">
+                        Histórico
+                        <Badge variant="secondary" className="ml-2">{completedRequests.length}</Badge>
+                      </CardTitle>
+                      <CardDescription className="text-xs md:text-sm">
+                        Solicitações concluídas ou rejeitadas
+                      </CardDescription>
+                    </div>
+                    {isHistoryOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                  </Button>
+                </CollapsibleTrigger>
+              </CardHeader>
+              <CollapsibleContent>
+                <CardContent>
+                  <div className="grid gap-3">
+                    {completedRequests.slice(0, 5).map(request => (
+                      <RequestCard key={request.id} request={request} />
+                    ))}
+                  </div>
+                </CardContent>
+              </CollapsibleContent>
+            </Card>
+          </Collapsible>
         )}
       </div>
 

@@ -10,6 +10,7 @@ import { AddFurnitureDialog } from './AddFurnitureDialog';
 import { SelectItemForStockDialog } from './SelectItemForStockDialog';
 import { WarehouseStockPanel } from './WarehouseStockPanel';
 import { FurnitureStockPanel } from './FurnitureStockPanel';
+import { FurnitureWarehousePanel } from './FurnitureWarehousePanel';
 import { CreateBatchDeliveryDialog } from './CreateBatchDeliveryDialog';
 import { QRCodeScanner } from './QRCodeScanner';
 import {
@@ -49,6 +50,7 @@ export function WarehouseDashboard() {
     updateFurnitureRemovalRequest,
     furnitureRequestsToDesigner,
     updateStock,
+    addStock,
     users,
     createDeliveryBatch,
     deliveryBatches,
@@ -70,22 +72,28 @@ export function WarehouseDashboard() {
   const isDeliveryDriver = currentUser?.warehouseType === 'delivery';
   const isStorageWorker = currentUser?.warehouseType === 'storage';
 
-  // BUSCAR O ID CORRETO DO ALMOXARIFADO CENTRAL
-  const centralWarehouse = units.find(u => u.name === 'Almoxarifado Central');
-  const warehouseUnitId = centralWarehouse?.id;
-
-  console.log('🏢 WarehouseDashboard - Total de solicitações no sistema:', requests.length);
-  console.log('🏢 WarehouseDashboard - Solicitações:', requests.map(r => ({
+  // 🔍 DEBUG: Verificar solicitações
+  console.log('🔍 DEBUG WarehouseDashboard:');
+  console.log('  📋 Total requests:', requests.length);
+  console.log('  📋 Requests:', requests.map(r => ({
     id: r.id,
-    item: r.itemId,
+    itemId: r.itemId,
     status: r.status,
-    requesting: r.requestingUnitId,
+    requestingUnitId: r.requestingUnitId,
+    quantity: r.quantity
   })));
 
   const warehouseRequests = requests.filter(r => r.status !== 'cancelled');
-  console.log('🏢 WarehouseDashboard - Solicitações não canceladas:', warehouseRequests.length);
-
   const pendingRequests = warehouseRequests.filter(r => r.status === 'pending');
+  
+  console.log('  ✅ Pending requests:', pendingRequests.length);
+  console.log('  ✅ Pending details:', pendingRequests.map(r => ({
+    id: r.id,
+    itemId: r.itemId,
+    quantity: r.quantity,
+    status: r.status
+  })));
+  
   const approvedRequests = warehouseRequests.filter(r => r.status === 'approved' || r.status === 'processing');
   const awaitingPickupRequests = warehouseRequests.filter(r => r.status === 'awaiting_pickup');
   const outForDeliveryRequests = warehouseRequests.filter(r => r.status === 'out_for_delivery');
@@ -248,11 +256,57 @@ export function WarehouseDashboard() {
     const request = furnitureRemovalRequests.find(r => r.id === requestId);
     if (!request) return;
 
+    console.log('🔍 DEBUG handleReceiveFurniture:');
+    console.log('  📋 Request:', request);
+    console.log('  📦 Request Status:', request.status);
+
+    // Buscar ID do almoxarifado central
+    const warehouseId = getWarehouseUnitId();
+    console.log('  🏢 Warehouse ID:', warehouseId);
+    
+    if (!warehouseId) {
+      toast.error('Erro: Almoxarifado Central não encontrado no sistema');
+      return;
+    }
+
     // Reduzir estoque da unidade de origem
-    const stock = unitStocks.find(s => s.itemId === request.itemId && s.unitId === request.unitId);
-    if (stock) {
-      const newQuantity = Math.max(0, stock.quantity - request.quantity);
-      updateStock(stock.id, newQuantity);
+    const originStock = unitStocks.find(s => s.itemId === request.itemId && s.unitId === request.unitId);
+    console.log('  📊 Origin Stock:', originStock);
+    
+    if (originStock) {
+      const newQuantity = Math.max(0, originStock.quantity - request.quantity);
+      console.log(`  ➖ Reduzindo estoque da origem: ${originStock.quantity} -> ${newQuantity}`);
+      updateStock(originStock.id, newQuantity);
+    } else {
+      console.log('  ⚠️ Estoque de origem não encontrado!');
+    }
+
+    // Se for para armazenagem, adicionar ao estoque do almoxarifado
+    const isStorage = request.status === 'approved_storage' || request.status === 'in_transit';
+    console.log('  🔄 Is Storage?', isStorage);
+    
+    if (isStorage) {
+      const warehouseStock = unitStocks.find(s => s.itemId === request.itemId && s.unitId === warehouseId);
+      console.log('  📦 Warehouse Stock:', warehouseStock);
+      
+      if (warehouseStock) {
+        // Item já existe no estoque do almoxarifado - somar quantidade
+        const newQuantity = warehouseStock.quantity + request.quantity;
+        console.log(`  ➕ Somando ao estoque existente: ${warehouseStock.quantity} + ${request.quantity} = ${newQuantity}`);
+        updateStock(warehouseStock.id, newQuantity);
+      } else {
+        // Item não existe no estoque do almoxarifado - criar novo registro
+        console.log(`  ✨ Criando novo estoque no almoxarifado com quantidade: ${request.quantity}`);
+        addStock({
+          itemId: request.itemId,
+          unitId: warehouseId,
+          quantity: request.quantity,
+          minimumQuantity: 1, // Quantidade mínima padrão para móveis
+          location: 'Almoxarifado Central', // Localização padrão
+        });
+      }
+    } else {
+      console.log('  🗑️ Item para descarte - não adiciona ao estoque');
     }
 
     updateFurnitureRemovalRequest(requestId, {
@@ -262,8 +316,10 @@ export function WarehouseDashboard() {
       completedAt: new Date(),
     });
 
-    const action = request.status.includes('storage') ? 'armazenado' : 'descartado';
+    const action = isStorage ? 'armazenado' : 'descartado';
     toast.success(`Móvel recebido e ${action} com sucesso!`);
+    
+    console.log('✅ handleReceiveFurniture concluído');
   };
 
   // Filtrar coletas de móveis
@@ -660,8 +716,11 @@ export function WarehouseDashboard() {
         </Card>
       )}
 
+      {/* Solicitações de Móveis - Esteira do Almoxarifado */}
+      <FurnitureWarehousePanel />
+
       {/* Seção de Criação de Lotes - COM ITENS APROVADOS */}
-      {isStorageWorker && approvedRequests.length > 0 && (
+      {isStorageWorker && approvedRequests.filter(r => r.status === 'approved').length > 0 && (
         <Card className="border-2 border-[#3F76FF] bg-gradient-to-br from-blue-50 to-cyan-50">
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -778,7 +837,7 @@ export function WarehouseDashboard() {
                           </div>
                           
                           {isSeparated ? (
-                            <Badge className="bg-green-600">�� Separado</Badge>
+                            <Badge className="bg-green-600"> Separado</Badge>
                           ) : (
                             <Button
                               size="sm"
@@ -1027,7 +1086,7 @@ export function WarehouseDashboard() {
           onClose={() => setShowCreateBatch(false)}
           requests={approvedRequests.filter(r => r.status === 'approved')}
           furnitureRequests={furnitureRequestsToDesigner.filter(
-            r => r.status === 'awaiting_delivery'
+            r => r.status === 'in_transit'
           )}
         />
       )}

@@ -79,7 +79,6 @@ export function AddStockDialog({
     } 
     // Caso 2: Ainda não existe stock (itemId foi passado)
     else if (itemId) {
-      console.log('📦 Criando movimento para novo stock:', { itemId, unitId: currentUnit.id });
       
       addMovement({
         type: 'entry',

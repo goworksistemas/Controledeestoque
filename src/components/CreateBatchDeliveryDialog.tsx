@@ -46,8 +46,8 @@ export function CreateBatchDeliveryDialog({
     : requests.filter(r => r.status === 'approved');
 
   const filteredFurnitureRequests = targetUnitId
-    ? furnitureRequests.filter(r => r.requestingUnitId === targetUnitId && r.status === 'awaiting_delivery')
-    : furnitureRequests.filter(r => r.status === 'awaiting_delivery');
+    ? furnitureRequests.filter(r => r.requestingUnitId === targetUnitId && r.status === 'in_transit')
+    : furnitureRequests.filter(r => r.status === 'in_transit');
 
   const toggleRequest = (requestId: string) => {
     const request = requests.find(r => r.id === requestId);

@@ -3,11 +3,11 @@ import { useApp } from '../contexts/AppContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Package, Calendar, AlertCircle, CheckCircle } from 'lucide-react';
+import { Package, Calendar, AlertCircle, CheckCircle, User } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 
 export function MyLoansPanel() {
-  const { currentUser, loans, getItemById, getUnitById, updateLoan, addMovement, updateStock, getStockForItem } = useApp();
+  const { currentUser, loans, getItemById, getUnitById, getUserById, updateLoan, addMovement, updateStock, getStockForItem } = useApp();
 
   const myLoans = loans.filter(
     loan => loan.responsibleUserId === currentUser?.id && (loan.status === 'active' || loan.status === 'overdue')
@@ -50,13 +50,13 @@ export function MyLoansPanel() {
     const diffDays = Math.ceil((expectedReturn.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
     if (loan.status === 'overdue' || diffDays < 0) {
-      return { label: 'Atrasado', color: 'bg-red-100 text-red-800', icon: AlertCircle };
+      return { label: 'Atrasado', color: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200', icon: AlertCircle };
     } else if (diffDays === 0) {
-      return { label: 'Vence hoje', color: 'bg-orange-100 text-orange-800', icon: AlertCircle };
+      return { label: 'Vence hoje', color: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200', icon: AlertCircle };
     } else if (diffDays <= 2) {
-      return { label: `Vence em ${diffDays}d`, color: 'bg-yellow-100 text-yellow-800', icon: Calendar };
+      return { label: `Vence em ${diffDays}d`, color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200', icon: Calendar };
     } else {
-      return { label: 'No prazo', color: 'bg-green-100 text-green-800', icon: CheckCircle };
+      return { label: 'No prazo', color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200', icon: CheckCircle };
     }
   };
 
@@ -90,16 +90,16 @@ export function MyLoansPanel() {
             return (
               <div
                 key={loan.id}
-                className="border border-slate-200 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow"
+                className="border border-slate-200 dark:border-slate-700 rounded-lg p-3 md:p-4 hover:shadow-md transition-shadow"
               >
                 <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4">
                   <div className="flex gap-3 flex-1 min-w-0">
-                    <div className="w-12 h-12 bg-slate-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-lg flex items-center justify-center flex-shrink-0">
                       <Package className="w-6 h-6 text-slate-400" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h4 className="text-slate-900 mb-1 text-sm sm:text-base">{item.name}</h4>
-                      <p className="text-xs sm:text-sm text-slate-600 mb-2 truncate">{unit?.name}</p>
+                      <h4 className="text-slate-900 dark:text-slate-100 mb-1 text-sm sm:text-base">{item.name}</h4>
+                      <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mb-2 truncate">{unit?.name}</p>
                       
                       <div className="flex flex-wrap gap-2 mb-2">
                         <Badge className={`${status.color} text-xs`}>
@@ -113,7 +113,7 @@ export function MyLoansPanel() {
                         )}
                       </div>
 
-                      <div className="text-xs sm:text-sm text-slate-600 space-y-1">
+                      <div className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 space-y-1">
                         <p>
                           Retirada: {new Date(loan.withdrawalDate).toLocaleDateString('pt-BR')}
                         </p>
